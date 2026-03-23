@@ -30,14 +30,12 @@ body {
 
 body,
 app-root,
-ion-app,
-ion-content {
+ion-app {
   width: 100%;
   min-height: 100vh;
 }
 
-ion-app,
-ion-content {
+ion-app {
   background: var(--rt-bg);
 }
 
@@ -67,6 +65,4 @@ ion-icon {
   display: inline-flex;
 }
 
-ion-content::part(scroll) {
-  padding-bottom: 2.5rem;
-}
+/* ion-content no longer used — layout is plain flexbox */

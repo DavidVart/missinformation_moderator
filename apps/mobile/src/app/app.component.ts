@@ -1,6 +1,6 @@
 import { CommonModule } from "@angular/common";
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from "@angular/core";
-import { IonApp, IonContent, IonIcon, IonSpinner } from "@ionic/angular/standalone";
+import { IonApp, IonIcon, IonSpinner } from "@ionic/angular/standalone";
 import { addIcons } from "ionicons";
 import {
   analyticsOutline,
@@ -72,7 +72,6 @@ function buildMeterBars(count: number, phase: number, intensity: number, minHeig
   imports: [
     CommonModule,
     IonApp,
-    IonContent,
     IonIcon,
     IonSpinner
   ],
