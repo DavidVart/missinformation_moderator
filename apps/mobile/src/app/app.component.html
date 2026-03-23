@@ -1,407 +1,486 @@
 <ion-app>
-  <ion-content [fullscreen]="true" class="arbiter-shell">
-    <div class="app-stage">
-      <div class="device-shell">
-        <header class="topbar">
-          <div class="brand-lockup">
-            <div class="avatar-chip">
-              <ion-icon name="person-circle-outline"></ion-icon>
-            </div>
-            <div>
-              <p class="brand-name">Arbiter</p>
-              <p class="brand-subtitle">{{ sessionHeaderLabel() }}</p>
-            </div>
+  <ion-content [fullscreen]="true" class="rt-shell">
+    <div class="app-viewport">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="avatar-chip">
+            <ion-icon name="pulse-outline"></ion-icon>
+          </div>
+          <div>
+            <p class="brand-name">Real Talk</p>
+            <p class="brand-subtitle">{{ sessionHeaderLabel() }}</p>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="transport-pill" [class.is-live]="transportStatus() === 'connected'">
+            <span class="transport-pill__dot"></span>
+            <span>{{ transportPillLabel() }}</span>
           </div>
 
-          <div class="topbar-actions">
-            <div class="transport-pill" [class.is-live]="transportStatus() === 'connected'">
-              <span class="transport-pill__dot"></span>
-              <span>{{ transportPillLabel() }}</span>
+          <button class="icon-button" type="button" aria-label="Settings">
+            <ion-icon name="settings-outline"></ion-icon>
+          </button>
+        </div>
+      </header>
+
+      <main class="screen-body">
+        <!-- ═══════════════════════════════════════════ HOME TAB ═══════════════════════════════════════════ -->
+        @if (activeTab() === 'home') {
+          <section class="home-view">
+            <div class="hero-block">
+              <div class="home-wavefield" aria-hidden="true">
+                @for (bar of homeWaveBars(); track $index) {
+                  <span class="home-wave-bar" [style.height.px]="bar"></span>
+                }
+              </div>
+
+              <div class="eyebrow-pill">Real-Time Fact Check</div>
+              <h1 class="hero-title">
+                The Truth
+                <span>Matters</span>
+              </h1>
+              <p class="hero-copy">
+                Real Talk is your intelligent conversation companion. We analyze live dialogue to
+                detect misinformation and keep discussions grounded in facts.
+              </p>
+
+              <div class="hero-console">
+                @for (readout of homeReadouts(); track readout.label) {
+                  <article class="console-pill" [class.is-emphasis]="readout.emphasis">
+                    <span>{{ readout.label }}</span>
+                    <strong>{{ readout.value }}</strong>
+                  </article>
+                }
+              </div>
             </div>
 
-            <button class="icon-button" type="button" aria-label="Settings">
-              <ion-icon name="settings-outline"></ion-icon>
+            <section class="feature-list">
+              @for (feature of featureCards; track feature.title) {
+                <article class="feature-card" [class.is-primary]="feature.tone === 'primary'">
+                  <div class="feature-icon">
+                    <ion-icon [name]="feature.icon"></ion-icon>
+                  </div>
+                  <h2>{{ feature.title }}</h2>
+                  <p>{{ feature.body }}</p>
+                </article>
+              }
+            </section>
+
+            @if (micError()) {
+              <div class="inline-alert inline-alert--error">
+                {{ micError() }}
+              </div>
+            }
+
+            <button class="primary-cta" type="button" [disabled]="isBusy()" (click)="goLiveAndStart()">
+              <ion-icon name="mic-outline"></ion-icon>
+              <span>{{ isBusy() ? 'Starting...' : 'Start Listening' }}</span>
+              @if (isBusy()) {
+                <ion-spinner name="crescent"></ion-spinner>
+              }
             </button>
-          </div>
-        </header>
 
-        <main class="screen-body">
-          @if (showOnboarding()) {
-            <section class="home-view">
-              <div class="hero-block">
-                <div class="home-wavefield" aria-hidden="true">
-                  @for (bar of homeWaveBars(); track $index) {
-                    <span class="home-wave-bar" [style.height.px]="bar"></span>
-                  }
+            <div class="status-footer">
+              <span class="status-dot" [class.is-online]="transportStatus() === 'connected'"></span>
+              <span>{{ homeStatusLabel() }}</span>
+            </div>
+          </section>
+        }
+
+        <!-- ═══════════════════════════════════════════ LIVE TAB ═══════════════════════════════════════════ -->
+        @if (activeTab() === 'live') {
+          <section class="session-view">
+            <div class="session-status">
+              <span class="live-indicator" [class.is-live]="isMonitoring()"></span>
+              <span>{{ isMonitoring() ? 'Listening...' : statusMessage() }}</span>
+            </div>
+
+            <div class="session-glance">
+              @for (item of sessionGlanceItems(); track item.label) {
+                <article class="glance-pill" [class.is-emphasis]="item.emphasis">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </article>
+              }
+            </div>
+
+            <section class="wave-card" [style.--meter-glow]="activityLevel()">
+              <div class="wave-card__halo" aria-hidden="true"></div>
+              <div class="wave-shell">
+                @for (bar of sessionWaveBars(); track $index) {
+                  <span class="wave-bar" [style.height.px]="bar"></span>
+                }
+              </div>
+              <p class="wave-caption">
+                {{ isMonitoring() ? 'Cross-checking rolling windows as you speak.' : 'Session is paused. Resume to keep building context.' }}
+              </p>
+              <div class="capture-rail">
+                <div class="capture-rail__track">
+                  <span [style.width.%]="captureProgress() * 100"></span>
                 </div>
+                <div class="capture-rail__meta">
+                  <span>Next window {{ nextWindowEta() }}</span>
+                  <span>{{ activityStatusLabel() }}</span>
+                </div>
+              </div>
+            </section>
 
-                <div class="eyebrow-pill">Digital Curator Protocol</div>
-                <h1 class="hero-title">
-                  The Truth
-                  <span>Matters</span>
-                </h1>
-                <p class="hero-copy">
-                  Arbiter acts as your sophisticated, silent observer. We curate live conversations to identify
-                  dissonance and preserve the integrity of dialogue.
-                </p>
+            <section class="transcript-panel">
+              <div class="section-heading">
+                <h2>Real-time Transcript</h2>
+                <span>{{ transcriptSegments().length }} segments</span>
+              </div>
 
-                <div class="hero-console">
-                  @for (readout of homeReadouts(); track readout.label) {
-                    <article class="console-pill" [class.is-emphasis]="readout.emphasis">
-                      <span>{{ readout.label }}</span>
-                      <strong>{{ readout.value }}</strong>
+              @if (transcriptFeed().length > 0) {
+                <div class="transcript-feed">
+                  @for (segment of transcriptFeed(); track segment.segmentId) {
+                    <article class="transcript-entry">
+                      <p class="transcript-meta">
+                        {{ segment.speakerLabel || 'Live window' }} &bull; {{ segment.startedAt | date: 'shortTime' }}
+                      </p>
+                      <p class="transcript-body">{{ segment.text }}</p>
                     </article>
                   }
                 </div>
-              </div>
-
-              <section class="feature-list">
-                @for (feature of featureCards; track feature.title) {
-                  <article class="feature-card" [class.is-primary]="feature.tone === 'primary'">
-                    <div class="feature-icon">
-                      <ion-icon [name]="feature.icon"></ion-icon>
-                    </div>
-                    <h2>{{ feature.title }}</h2>
-                    <p>{{ feature.body }}</p>
-                  </article>
-                }
-              </section>
-
-              @if (micError()) {
-                <div class="inline-alert inline-alert--error">
-                  {{ micError() }}
+              } @else {
+                <div class="empty-panel empty-panel--waiting">
+                  <div class="typing-indicator" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  {{ transcriptWaitingCopy() }}
                 </div>
               }
-
-              <button class="primary-cta" type="button" [disabled]="isBusy()" (click)="toggleMonitoring()">
-                <ion-icon name="mic-outline"></ion-icon>
-                <span>{{ isBusy() ? 'Starting…' : 'Start Moderating' }}</span>
-                @if (isBusy()) {
-                  <ion-spinner name="crescent"></ion-spinner>
-                }
-              </button>
-
-              <div class="status-footer">
-                <span class="status-dot" [class.is-online]="transportStatus() === 'connected'"></span>
-                <span>{{ homeStatusLabel() }}</span>
-              </div>
             </section>
-          }
 
-          @if (showActiveSession()) {
-            <section class="session-view">
-              <div class="session-status">
-                <span class="live-indicator" [class.is-live]="isMonitoring()"></span>
-                <span>{{ isMonitoring() ? 'Listening...' : statusMessage() }}</span>
+            @if (latestIntervention() && !showCorrectionOverlay()) {
+              <section class="intervention-strip">
+                <div>
+                  <p class="intervention-kicker">Latest correction</p>
+                  <p class="intervention-copy">{{ latestIntervention().correction }}</p>
+                  <div class="intervention-meta">
+                    <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
+                    @if (latestSource(); as source) {
+                      <button class="source-pill" type="button" (click)="openLatestSource()">
+                        {{ sourceHost(source.url) }}
+                      </button>
+                    }
+                  </div>
+                </div>
+                <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
+              </section>
+            }
+
+            @if (micError()) {
+              <div class="inline-alert inline-alert--error">
+                {{ micError() }}
               </div>
+            }
 
-              <div class="session-glance">
-                @for (item of sessionGlanceItems(); track item.label) {
-                  <article class="glance-pill" [class.is-emphasis]="item.emphasis">
-                    <span>{{ item.label }}</span>
-                    <strong>{{ item.value }}</strong>
-                  </article>
-                }
-              </div>
+            <button
+              class="primary-cta primary-cta--floating"
+              type="button"
+              [disabled]="isBusy()"
+              (click)="toggleMonitoring()">
+              <ion-icon [name]="isMonitoring() ? 'stop-circle-outline' : 'mic-outline'"></ion-icon>
+              <span>{{ isMonitoring() ? 'Stop Session' : (hasSessionData() ? 'Resume Session' : 'Start Listening') }}</span>
+            </button>
+          </section>
+        }
 
-              <section class="wave-card" [style.--meter-glow]="activityLevel()">
-                <div class="wave-card__halo" aria-hidden="true"></div>
-                <div class="wave-shell">
-                  @for (bar of sessionWaveBars(); track $index) {
-                    <span class="wave-bar" [style.height.px]="bar"></span>
+        <!-- ═══════════════════════════════════════════ INSIGHTS TAB ═══════════════════════════════════════════ -->
+        @if (activeTab() === 'insights') {
+          <section class="insights-view">
+            <div class="view-header">
+              <h1>Insights</h1>
+              <p>
+                {{ hasSessionData() ? 'Current conversation summary' : 'No monitored session yet. Start a live session to populate insights.' }}
+              </p>
+            </div>
+
+            <div class="insight-grid">
+              <article class="snapshot-card">
+                <div>
+                  <p class="card-kicker">Session Snapshot</p>
+                  <h2>Live correction intelligence</h2>
+                  <p class="card-copy">
+                    Based on the current session's transcript windows, intervention count, and live moderation flow.
+                  </p>
+                </div>
+
+                <div class="snapshot-metrics">
+                  <div>
+                    <span>Total Duration</span>
+                    <strong>{{ sessionMetrics().duration }}</strong>
+                  </div>
+                  <div>
+                    <span>Corrections</span>
+                    <strong>{{ sessionMetrics().corrections }}</strong>
+                  </div>
+                  <div>
+                    <span>Segments</span>
+                    <strong>{{ sessionMetrics().segments }}</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="density-card">
+                <ion-icon name="analytics-outline"></ion-icon>
+                <h2>Interaction Density</h2>
+                <div class="density-bars">
+                  @for (bar of densityBars(); track $index) {
+                    <span [style.height.px]="bar + 20"></span>
                   }
                 </div>
-                <p class="wave-caption">
-                  {{ isMonitoring() ? 'Cross-checking rolling windows as you speak.' : 'Session is paused. Resume to keep building context.' }}
-                </p>
-                <div class="capture-rail">
-                  <div class="capture-rail__track">
-                    <span [style.width.%]="captureProgress() * 100"></span>
-                  </div>
-                  <div class="capture-rail__meta">
-                    <span>Next window {{ nextWindowEta() }}</span>
-                    <span>{{ activityStatusLabel() }}</span>
-                  </div>
-                </div>
-              </section>
-
-              <section class="transcript-panel">
-                <div class="section-heading">
-                  <h2>Real-time Transcript</h2>
-                  <span>{{ transcriptSegments().length }} segments</span>
-                </div>
-
-                @if (transcriptFeed().length > 0) {
-                  <div class="transcript-feed">
-                    @for (segment of transcriptFeed(); track segment.segmentId) {
-                      <article class="transcript-entry">
-                        <p class="transcript-meta">
-                          {{ segment.speakerLabel || 'Live window' }} • {{ segment.startedAt | date: 'shortTime' }}
-                        </p>
-                        <p class="transcript-body">{{ segment.text }}</p>
-                      </article>
-                    }
-                  </div>
-                } @else {
-                  <div class="empty-panel empty-panel--waiting">
-                    <div class="typing-indicator" aria-hidden="true">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </div>
-                    {{ transcriptWaitingCopy() }}
-                  </div>
-                }
-              </section>
-
-              @if (latestIntervention() && !showCorrectionOverlay()) {
-                <section class="intervention-strip">
-                  <div>
-                    <p class="intervention-kicker">Latest correction</p>
-                    <p class="intervention-copy">{{ latestIntervention().correction }}</p>
-                    <div class="intervention-meta">
-                      <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
-                      @if (latestSource(); as source) {
-                        <button class="source-pill" type="button" (click)="openLatestSource()">
-                          {{ sourceHost(source.url) }}
-                        </button>
-                      }
-                    </div>
-                  </div>
-                  <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
-                </section>
-              }
-
-              @if (micError()) {
-                <div class="inline-alert inline-alert--error">
-                  {{ micError() }}
-                </div>
-              }
-
-              <button
-                class="primary-cta primary-cta--floating"
-                type="button"
-                [disabled]="isBusy()"
-                (click)="toggleMonitoring()">
-                <ion-icon [name]="isMonitoring() ? 'stop-circle-outline' : 'mic-outline'"></ion-icon>
-                <span>{{ isMonitoring() ? 'Stop Moderating' : 'Resume Session' }}</span>
-              </button>
-            </section>
-          }
-
-          @if (activeTab() === 'insights') {
-            <section class="insights-view">
-              <div class="view-header">
-                <h1>Session Insights</h1>
                 <p>
-                  {{ hasSessionData() ? 'Current conversation summary' : 'No monitored session yet. Start moderating to populate insights.' }}
+                  Peak activity increases as overlapping windows accumulate enough transcript context to form claims.
                 </p>
+              </article>
+            </div>
+
+            <section class="stack-panel">
+              <div class="section-heading">
+                <h2>Conversation Moments</h2>
+                <span>{{ recentMoments().length }}</span>
               </div>
 
-              <div class="insight-grid">
-                <article class="snapshot-card">
-                  <div>
-                    <p class="card-kicker">Session Snapshot</p>
-                    <h2>Live correction intelligence</h2>
-                    <p class="card-copy">
-                      Based on the current session's transcript windows, intervention count, and live moderation flow.
-                    </p>
-                  </div>
-
-                  <div class="snapshot-metrics">
-                    <div>
-                      <span>Total Duration</span>
-                      <strong>{{ sessionMetrics().duration }}</strong>
-                    </div>
-                    <div>
-                      <span>Corrections</span>
-                      <strong>{{ sessionMetrics().corrections }}</strong>
-                    </div>
-                    <div>
-                      <span>Segments</span>
-                      <strong>{{ sessionMetrics().segments }}</strong>
-                    </div>
-                  </div>
-                </article>
-
-                <article class="density-card">
-                  <ion-icon name="analytics-outline"></ion-icon>
-                  <h2>Interaction Density</h2>
-                  <div class="density-bars">
-                    @for (bar of densityBars(); track $index) {
-                      <span [style.height.px]="bar + 20"></span>
-                    }
-                  </div>
-                  <p>
-                    Peak activity increases as overlapping windows accumulate enough transcript context to form claims.
-                  </p>
-                </article>
-              </div>
-
-              <section class="stack-panel">
-                <div class="section-heading">
-                  <h2>Conversation Moments</h2>
-                  <span>{{ recentMoments().length }}</span>
+              @if (recentMoments().length > 0) {
+                <div class="moment-list">
+                  @for (moment of recentMoments(); track moment.id) {
+                    <article class="moment-item">
+                      <p class="moment-title">{{ moment.title }}</p>
+                      <p class="moment-body">{{ moment.body }}</p>
+                    </article>
+                  }
                 </div>
-
-                @if (recentMoments().length > 0) {
-                  <div class="moment-list">
-                    @for (moment of recentMoments(); track moment.id) {
-                      <article class="moment-item">
-                        <p class="moment-title">{{ moment.title }}</p>
-                        <p class="moment-body">{{ moment.body }}</p>
-                      </article>
-                    }
-                  </div>
-                } @else {
-                  <div class="empty-panel">
-                    Session highlights will appear here once transcript windows arrive.
-                  </div>
-                }
-              </section>
-
-              <section class="stack-panel">
-                <div class="section-heading">
-                  <h2>Correction Registry</h2>
-                  <span>{{ archiveFeed().length }}</span>
+              } @else {
+                <div class="empty-panel">
+                  Session highlights will appear here once transcript windows arrive.
                 </div>
-
-                @if (archiveFeed().length > 0) {
-                  <div class="registry-list">
-                    @for (intervention of archiveFeed(); track intervention.messageId) {
-                      <article class="registry-card">
-                        <div class="registry-meta">
-                          <span>Timestamp {{ intervention.issuedAt | date: 'shortTime' }}</span>
-                          <ion-icon name="warning-outline"></ion-icon>
-                        </div>
-                        <div class="registry-block">
-                          <p class="registry-label">Statement</p>
-                          <p class="registry-claim">{{ intervention.claimText }}</p>
-                        </div>
-                        <div class="registry-correction">
-                          <div>
-                            <p class="registry-label">Moderator Intervention</p>
-                            <p>{{ intervention.correction }}</p>
-                          </div>
-                          <div class="registry-footer">
-                            <span>Sources {{ intervention.sources.length }}</span>
-                            <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
-                          </div>
-                        </div>
-                      </article>
-                    }
-                  </div>
-                } @else {
-                  <div class="empty-panel">
-                    No correction registry yet. False or misleading claims will populate this view.
-                  </div>
-                }
-              </section>
+              }
             </section>
-          }
 
-          @if (activeTab() === 'archive') {
-            <section class="archive-view">
-              <div class="view-header">
-                <h1>Archive</h1>
-                <p>Review the most recent interventions and claim corrections from the current device session.</p>
+            <section class="stack-panel">
+              <div class="section-heading">
+                <h2>Correction Registry</h2>
+                <span>{{ archiveFeed().length }}</span>
               </div>
 
               @if (archiveFeed().length > 0) {
-                <div class="archive-list">
+                <div class="registry-list">
                   @for (intervention of archiveFeed(); track intervention.messageId) {
-                    <article class="archive-card">
-                      <div class="archive-header">
-                        <div>
-                          <p class="archive-time">{{ intervention.issuedAt | date: 'mediumTime' }}</p>
-                          <h2>{{ intervention.claimText }}</h2>
-                        </div>
-                        <span class="archive-pill">{{ intervention.verdict }}</span>
+                    <article class="registry-card">
+                      <div class="registry-meta">
+                        <span>Timestamp {{ intervention.issuedAt | date: 'shortTime' }}</span>
+                        <ion-icon name="warning-outline"></ion-icon>
                       </div>
-                      <p class="archive-copy">{{ intervention.correction }}</p>
-                      <div class="archive-footer">
-                        <span>{{ intervention.sources.length }} linked sources</span>
-                        <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
+                      <div class="registry-block">
+                        <p class="registry-label">Statement</p>
+                        <p class="registry-claim">{{ intervention.claimText }}</p>
+                      </div>
+                      <div class="registry-correction">
+                        <div>
+                          <p class="registry-label">Correction</p>
+                          <p>{{ intervention.correction }}</p>
+                        </div>
+                        <div class="registry-footer">
+                          <span>Sources {{ intervention.sources.length }}</span>
+                          <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
+                        </div>
                       </div>
                     </article>
                   }
                 </div>
               } @else {
                 <div class="empty-panel">
-                  Nothing archived yet. Start moderating to build a correction history.
+                  No correction registry yet. False or misleading claims will populate this view.
                 </div>
               }
             </section>
-          }
-        </main>
-
-        @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
-          <div class="overlay-shell">
-            <div class="correction-modal">
-              <div class="modal-header">
-                <div class="modal-lockup">
-                  <div class="modal-icon">
-                    <ion-icon name="warning-outline"></ion-icon>
-                  </div>
-                  <div>
-                    <p class="modal-title">Correction Alert</p>
-                    <p class="modal-subtitle">Verification Engine Active</p>
-                  </div>
-                </div>
-                <button class="icon-button icon-button--ghost" type="button" (click)="closeCorrectionOverlay()">
-                  <ion-icon name="close-outline"></ion-icon>
-                </button>
-              </div>
-
-              <div class="modal-body">
-                <div class="modal-block">
-                  <p class="modal-kicker">Detected Claim</p>
-                  <blockquote class="claim-quote">“{{ intervention.claimText }}”</blockquote>
-                </div>
-
-                <div class="modal-block">
-                  <p class="modal-kicker">Factual Correction</p>
-                  <p class="modal-correction">{{ intervention.correction }}</p>
-                  <p class="modal-support">
-                    {{ intervention.sources.length }} supporting source{{ intervention.sources.length === 1 ? '' : 's' }} linked to this intervention.
-                  </p>
-                  <div class="modal-meta-row">
-                    <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
-                    @if (intervention.sources[0]) {
-                      <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
-                        {{ sourceHost(intervention.sources[0].url) }}
-                      </button>
-                    }
-                  </div>
-                </div>
-              </div>
-
-              <div class="modal-actions">
-                <button class="secondary-cta" type="button" (click)="closeCorrectionOverlay()">Dismiss</button>
-                <button class="primary-cta primary-cta--inline" type="button" (click)="speakLatestIntervention()">
-                  <ion-icon name="volume-high-outline"></ion-icon>
-                  <span>Speak Correction</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          </section>
         }
 
-        <nav class="bottom-nav">
-          <button class="nav-button" [class.is-active]="activeTab() === 'sessions'" (click)="selectTab('sessions')" type="button">
-            <ion-icon name="mic-outline"></ion-icon>
-            <span>Sessions</span>
-          </button>
-          <button class="nav-button" [class.is-active]="activeTab() === 'insights'" (click)="selectTab('insights')" type="button">
-            <ion-icon name="bar-chart-outline"></ion-icon>
-            <span>Insights</span>
-          </button>
-          <button class="nav-button" [class.is-active]="activeTab() === 'archive'" (click)="selectTab('archive')" type="button">
-            <ion-icon name="archive-outline"></ion-icon>
-            <span>Archive</span>
-          </button>
-        </nav>
-      </div>
+        <!-- ═══════════════════════════════════════════ ARCHIVE TAB ═══════════════════════════════════════════ -->
+        @if (activeTab() === 'archive') {
+          <section class="archive-view">
+            <div class="view-header">
+              <h1>Archive</h1>
+              <p>Review the most recent interventions and claim corrections from your sessions.</p>
+            </div>
+
+            @if (archiveFeed().length > 0) {
+              <div class="archive-list">
+                @for (intervention of archiveFeed(); track intervention.messageId) {
+                  <article class="archive-card">
+                    <div class="archive-header">
+                      <div>
+                        <p class="archive-time">{{ intervention.issuedAt | date: 'mediumTime' }}</p>
+                        <h2>{{ intervention.claimText }}</h2>
+                      </div>
+                      <span class="archive-pill">{{ intervention.verdict }}</span>
+                    </div>
+                    <p class="archive-copy">{{ intervention.correction }}</p>
+                    <div class="archive-footer">
+                      <span>{{ intervention.sources.length }} linked sources</span>
+                      <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
+                    </div>
+                  </article>
+                }
+              </div>
+            } @else {
+              <div class="empty-panel">
+                Nothing archived yet. Start a live session to build a correction history.
+              </div>
+            }
+          </section>
+        }
+
+        <!-- ═══════════════════════════════════════════ PROFILE TAB ═══════════════════════════════════════════ -->
+        @if (activeTab() === 'profile') {
+          <section class="profile-view">
+            <div class="view-header">
+              <h1>Profile</h1>
+              <p>Manage your account and preferences.</p>
+            </div>
+
+            <article class="profile-card">
+              <div class="profile-avatar">
+                <ion-icon name="person-outline"></ion-icon>
+              </div>
+              <div class="profile-info">
+                <h2>Guest User</h2>
+                <p class="profile-detail">Sign in to sync your sessions across devices and track your progress.</p>
+              </div>
+            </article>
+
+            <button class="primary-cta" type="button">
+              <ion-icon name="person-outline"></ion-icon>
+              <span>Sign In</span>
+            </button>
+
+            <section class="settings-group">
+              <h3 class="settings-heading">Preferences</h3>
+              <div class="settings-list">
+                <article class="settings-item">
+                  <div>
+                    <p class="settings-label">Auto-speak corrections</p>
+                    <p class="settings-description">Automatically read corrections aloud when detected</p>
+                  </div>
+                </article>
+                <article class="settings-item">
+                  <div>
+                    <p class="settings-label">Audio capture window</p>
+                    <p class="settings-description">4-second rolling windows with 2-second overlap</p>
+                  </div>
+                </article>
+                <article class="settings-item">
+                  <div>
+                    <p class="settings-label">Preferred language</p>
+                    <p class="settings-description">Auto-detect from device settings</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="settings-group">
+              <h3 class="settings-heading">About</h3>
+              <div class="settings-list">
+                <article class="settings-item">
+                  <div>
+                    <p class="settings-label">Version</p>
+                    <p class="settings-description">Real Talk v2.0.0</p>
+                  </div>
+                </article>
+                <article class="settings-item">
+                  <div>
+                    <p class="settings-label">Transport</p>
+                    <p class="settings-description">{{ transportPillLabel() }}</p>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </section>
+        }
+      </main>
+
+      <!-- ═══════════════════ CORRECTION OVERLAY ═══════════════════ -->
+      @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
+        <div class="overlay-shell">
+          <div class="correction-modal">
+            <div class="modal-header">
+              <div class="modal-lockup">
+                <div class="modal-icon">
+                  <ion-icon name="warning-outline"></ion-icon>
+                </div>
+                <div>
+                  <p class="modal-title">Correction Alert</p>
+                  <p class="modal-subtitle">Verification Engine Active</p>
+                </div>
+              </div>
+              <button class="icon-button icon-button--ghost" type="button" (click)="closeCorrectionOverlay()">
+                <ion-icon name="close-outline"></ion-icon>
+              </button>
+            </div>
+
+            <div class="modal-body">
+              <div class="modal-block">
+                <p class="modal-kicker">Detected Claim</p>
+                <blockquote class="claim-quote">"{{ intervention.claimText }}"</blockquote>
+              </div>
+
+              <div class="modal-block">
+                <p class="modal-kicker">Factual Correction</p>
+                <p class="modal-correction">{{ intervention.correction }}</p>
+                <p class="modal-support">
+                  {{ intervention.sources.length }} supporting source{{ intervention.sources.length === 1 ? '' : 's' }} linked to this intervention.
+                </p>
+                <div class="modal-meta-row">
+                  <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
+                  @if (intervention.sources[0]) {
+                    <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
+                      {{ sourceHost(intervention.sources[0].url) }}
+                    </button>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-actions">
+              <button class="secondary-cta" type="button" (click)="closeCorrectionOverlay()">Dismiss</button>
+              <button class="primary-cta primary-cta--inline" type="button" (click)="speakLatestIntervention()">
+                <ion-icon name="volume-high-outline"></ion-icon>
+                <span>Speak Correction</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
   </ion-content>
+
+  <!-- ═══════════════════ FIXED BOTTOM NAVIGATION ═══════════════════ -->
+  <nav class="bottom-nav">
+    <button class="nav-button" [class.is-active]="activeTab() === 'home'" (click)="selectTab('home')" type="button">
+      <ion-icon name="home-outline"></ion-icon>
+      <span>Home</span>
+    </button>
+    <button class="nav-button" [class.is-active]="activeTab() === 'live'" (click)="selectTab('live')" type="button">
+      <ion-icon name="mic-outline"></ion-icon>
+      <span>Live</span>
+    </button>
+    <button class="nav-button" [class.is-active]="activeTab() === 'insights'" (click)="selectTab('insights')" type="button">
+      <ion-icon name="bar-chart-outline"></ion-icon>
+      <span>Insights</span>
+    </button>
+    <button class="nav-button" [class.is-active]="activeTab() === 'archive'" (click)="selectTab('archive')" type="button">
+      <ion-icon name="archive-outline"></ion-icon>
+      <span>Archive</span>
+    </button>
+    <button class="nav-button" [class.is-active]="activeTab() === 'profile'" (click)="selectTab('profile')" type="button">
+      <ion-icon name="person-outline"></ion-icon>
+      <span>Profile</span>
+    </button>
+  </nav>
 </ion-app>

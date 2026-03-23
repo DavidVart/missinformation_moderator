@@ -7,18 +7,18 @@
 :root {
   color-scheme: light;
   font-family: "Inter", "Avenir Next", "Segoe UI", sans-serif;
-  --arb-bg: #f8f9fc;
-  --arb-surface: #ffffff;
-  --arb-surface-soft: #f2f4f6;
-  --arb-surface-muted: #eceef0;
-  --arb-primary: #004b63;
-  --arb-primary-strong: #003345;
-  --arb-secondary: #00838f;
-  --arb-secondary-soft: #8feefc;
-  --arb-tertiary: #972f03;
-  --arb-text: #191c1e;
-  --arb-muted: #5f6b73;
-  --arb-muted-strong: #405055;
+  --rt-bg: #f8f9fc;
+  --rt-surface: #ffffff;
+  --rt-surface-soft: #f2f4f6;
+  --rt-surface-muted: #eceef0;
+  --rt-primary: #004b63;
+  --rt-primary-strong: #003345;
+  --rt-secondary: #00838f;
+  --rt-secondary-soft: #8feefc;
+  --rt-tertiary: #972f03;
+  --rt-text: #191c1e;
+  --rt-muted: #5f6b73;
+  --rt-muted-strong: #405055;
 }
 
 html,
@@ -38,7 +38,7 @@ ion-content {
 
 ion-app,
 ion-content {
-  background: var(--arb-bg);
+  background: var(--rt-bg);
 }
 
 ion-app,

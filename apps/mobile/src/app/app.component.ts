@@ -10,7 +10,9 @@ import {
   closeOutline,
   documentTextOutline,
   flashOutline,
+  homeOutline,
   micOutline,
+  personOutline,
   pulseOutline,
   personCircleOutline,
   radioButtonOnOutline,
@@ -31,7 +33,7 @@ import { HistoryApiService } from "./core/history/history-api.service";
 import { MonitoringSocketService } from "./core/monitoring/monitoring-socket.service";
 import { SpeechService } from "./core/speech/speech.service";
 
-type AppTab = "sessions" | "insights" | "archive";
+type AppTab = "home" | "live" | "insights" | "archive" | "profile";
 
 type FeatureCard = {
   icon: string;
@@ -94,7 +96,7 @@ export class AppComponent implements OnDestroy {
   protected readonly statusMessage = signal("Ready to moderate");
   protected readonly micError = signal<string | null>(null);
   protected readonly transportStatus = signal<"connecting" | "connected" | "offline">("connecting");
-  protected readonly activeTab = signal<AppTab>("sessions");
+  protected readonly activeTab = signal<AppTab>("home");
   protected readonly isCorrectionOpen = signal(true);
   protected readonly activityLevel = signal(0);
   protected readonly ambientTick = signal(0);
@@ -103,14 +105,8 @@ export class AppComponent implements OnDestroy {
 
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
-  protected readonly showOnboarding = computed(
-    () => this.activeTab() === "sessions" && !this.isMonitoring() && !this.hasSessionData()
-  );
-  protected readonly showActiveSession = computed(
-    () => this.activeTab() === "sessions" && (this.isMonitoring() || this.hasSessionData())
-  );
   protected readonly showCorrectionOverlay = computed(
-    () => this.activeTab() === "sessions" && this.isCorrectionOpen() && !!this.latestIntervention()
+    () => this.activeTab() === "live" && this.isCorrectionOpen() && !!this.latestIntervention()
   );
   protected readonly transcriptFeed = computed(() => this.transcriptSegments().slice(-8));
   protected readonly archiveFeed = computed(() => this.interventions().slice(0, 8));
@@ -142,11 +138,11 @@ export class AppComponent implements OnDestroy {
   });
   protected readonly homeStatusLabel = computed(() => {
     if (this.transportStatus() === "connected") {
-      return "Ready to analyze current frequencies";
+      return "Ready to analyze conversations";
     }
 
     if (this.transportStatus() === "connecting") {
-      return "Establishing transport channel";
+      return "Establishing connection";
     }
 
     return "Backend offline";
@@ -262,19 +258,19 @@ export class AppComponent implements OnDestroy {
     {
       icon: "shield-checkmark-outline",
       title: "Integrity First",
-      body: "Advanced neural patterns detect factual inconsistencies in real-time.",
+      body: "Advanced neural patterns detect factual inconsistencies in real-time conversations.",
       tone: "soft"
     },
     {
       icon: "sparkles-outline",
       title: "Neutral Stance",
-      body: "Our algorithm maintains zero bias, focusing only on structural logic.",
+      body: "Our algorithm maintains zero bias, focusing only on structural logic and verifiable facts.",
       tone: "primary"
     },
     {
       icon: "pulse-outline",
-      title: "Aural Depth",
-      body: "Sophisticated voice fingerprinting and overlap-aware transcription preserve accountability.",
+      title: "Deep Listening",
+      body: "Sophisticated voice analysis and overlap-aware transcription preserve accountability.",
       tone: "soft"
     }
   ];
@@ -299,7 +295,9 @@ export class AppComponent implements OnDestroy {
       closeOutline,
       documentTextOutline,
       flashOutline,
+      homeOutline,
       micOutline,
+      personOutline,
       pulseOutline,
       personCircleOutline,
       radioButtonOnOutline,
@@ -358,7 +356,7 @@ export class AppComponent implements OnDestroy {
 
   protected selectTab(tab: AppTab) {
     this.activeTab.set(tab);
-    if (tab !== "sessions") {
+    if (tab !== "live") {
       this.isCorrectionOpen.set(false);
     }
   }
@@ -421,11 +419,16 @@ export class AppComponent implements OnDestroy {
     return "Ready";
   }
 
+  protected goLiveAndStart() {
+    this.activeTab.set("live");
+    void this.startMonitoring();
+  }
+
   private async startMonitoring() {
     this.isBusy.set(true);
     this.micError.set(null);
     this.statusMessage.set("Opening microphone");
-    this.activeTab.set("sessions");
+    this.activeTab.set("live");
     this.isCorrectionOpen.set(false);
 
     try {
@@ -508,11 +511,18 @@ export class AppComponent implements OnDestroy {
   }
 
   private ensureDeviceId() {
-    const storageKey = "project-veritas-device-id";
+    const storageKey = "real-talk-device-id";
     const existing = globalThis.localStorage?.getItem(storageKey);
 
     if (existing) {
       return existing;
+    }
+
+    // Migrate from old key
+    const legacy = globalThis.localStorage?.getItem("project-veritas-device-id");
+    if (legacy) {
+      globalThis.localStorage?.setItem(storageKey, legacy);
+      return legacy;
     }
 
     const next = crypto.randomUUID();
