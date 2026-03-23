@@ -1029,6 +1029,96 @@
   line-height: 1.45;
 }
 
+.profile-avatar--active {
+  background: linear-gradient(135deg, #0f4c63, #135b77);
+  color: #fff;
+}
+
+.secondary-cta--full {
+  width: 100%;
+  gap: 0.6rem;
+}
+
+/* ─── Auth Card ─── */
+
+.auth-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-radius: 1.35rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 36px rgba(0, 51, 69, 0.08);
+}
+
+.auth-card__header {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+
+.auth-card__header > ion-icon {
+  font-size: 1.8rem;
+  color: var(--rt-secondary);
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.auth-card__header h2 {
+  margin: 0;
+  font-family: "Manrope", sans-serif;
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--rt-primary-strong);
+}
+
+.auth-card__header p {
+  margin: 0.2rem 0 0;
+  color: var(--rt-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.auth-input-group {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.auth-input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 1.5px solid rgba(0, 51, 69, 0.12);
+  border-radius: 0.85rem;
+  background: rgba(248, 249, 252, 0.9);
+  color: var(--rt-text);
+  font-size: 1rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 160ms ease;
+}
+
+.auth-input:focus {
+  border-color: var(--rt-secondary);
+}
+
+.auth-input::placeholder {
+  color: var(--rt-muted);
+}
+
+.auth-preview-code {
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.75rem;
+  background: rgba(0, 131, 143, 0.08);
+  color: var(--rt-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.auth-preview-code strong {
+  font-family: "Manrope", monospace;
+  letter-spacing: 0.15em;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    CORRECTION MODAL OVERLAY
    ═══════════════════════════════════════════════════════════════ */

@@ -5,5 +5,8 @@ export const environment = {
   socketUrl: "",
   historyUrl: "",
   identityUrl: "",
-  analyticsUrl: ""
+  analyticsUrl: "",
+  posthogKey: "",
+  posthogHost: "",
+  sentryDsn: ""
 };

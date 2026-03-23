@@ -345,20 +345,99 @@
               <p>Manage your account and preferences.</p>
             </div>
 
-            <article class="profile-card">
-              <div class="profile-avatar">
-                <ion-icon name="person-outline"></ion-icon>
-              </div>
-              <div class="profile-info">
-                <h2>Guest User</h2>
-                <p class="profile-detail">Sign in to sync your sessions across devices and track your progress.</p>
-              </div>
-            </article>
+            <!-- ─── Signed In ─── -->
+            @if (auth.isSignedIn()) {
+              <article class="profile-card">
+                <div class="profile-avatar profile-avatar--active">
+                  <ion-icon name="person-outline"></ion-icon>
+                </div>
+                <div class="profile-info">
+                  <h2>{{ auth.currentProfile()?.displayName || 'User' }}</h2>
+                  <p class="profile-detail">{{ auth.currentUser()?.email }}</p>
+                </div>
+              </article>
 
-            <button class="primary-cta" type="button">
-              <ion-icon name="person-outline"></ion-icon>
-              <span>Sign In</span>
-            </button>
+              <button class="secondary-cta secondary-cta--full" type="button" (click)="signOut()">
+                <ion-icon name="log-out-outline"></ion-icon>
+                <span>Sign Out</span>
+              </button>
+            }
+
+            <!-- ─── Awaiting Code ─── -->
+            @if (auth.authState().status === 'awaiting-code' || auth.authState().status === 'verifying') {
+              <article class="auth-card">
+                <div class="auth-card__header">
+                  <ion-icon name="mail-outline"></ion-icon>
+                  <div>
+                    <h2>Check your email</h2>
+                    <p>We sent a verification code to your email.</p>
+                  </div>
+                </div>
+
+                @if (authPreviewCode()) {
+                  <div class="auth-preview-code">
+                    Dev code: <strong>{{ authPreviewCode() }}</strong>
+                  </div>
+                }
+
+                <div class="auth-input-group">
+                  <input
+                    class="auth-input"
+                    type="text"
+                    inputmode="text"
+                    autocomplete="one-time-code"
+                    placeholder="Enter verification code"
+                    [ngModel]="authCode()"
+                    (ngModelChange)="authCode.set($event)"
+                    [disabled]="authBusy()" />
+                  <button class="primary-cta" type="button" [disabled]="authBusy()" (click)="verifyMagicLink()">
+                    @if (authBusy()) {
+                      <ion-spinner name="crescent"></ion-spinner>
+                    }
+                    <span>{{ authBusy() ? 'Verifying...' : 'Verify' }}</span>
+                  </button>
+                </div>
+
+                <button class="text-link-button" type="button" (click)="cancelAuth()">Cancel</button>
+              </article>
+            }
+
+            <!-- ─── Signed Out ─── -->
+            @if (auth.authState().status === 'signed-out') {
+              <article class="auth-card">
+                <div class="auth-card__header">
+                  <ion-icon name="person-outline"></ion-icon>
+                  <div>
+                    <h2>Sign in to Real Talk</h2>
+                    <p>Sync sessions across devices and track your progress.</p>
+                  </div>
+                </div>
+
+                <div class="auth-input-group">
+                  <input
+                    class="auth-input"
+                    type="email"
+                    inputmode="email"
+                    autocomplete="email"
+                    placeholder="your@email.com"
+                    [ngModel]="authEmail()"
+                    (ngModelChange)="authEmail.set($event)"
+                    [disabled]="authBusy()" />
+                  <button class="primary-cta" type="button" [disabled]="authBusy()" (click)="requestMagicLink()">
+                    @if (authBusy()) {
+                      <ion-spinner name="crescent"></ion-spinner>
+                    }
+                    <span>{{ authBusy() ? 'Sending...' : 'Send Magic Link' }}</span>
+                  </button>
+                </div>
+              </article>
+            }
+
+            @if (authError()) {
+              <div class="inline-alert inline-alert--error">
+                {{ authError() }}
+              </div>
+            }
 
             <section class="settings-group">
               <h3 class="settings-heading">Preferences</h3>
