@@ -458,29 +458,29 @@
         </div>
       }
     </div>
-  </ion-content>
 
-  <!-- ═══════════════════ FIXED BOTTOM NAVIGATION ═══════════════════ -->
-  <nav class="bottom-nav">
-    <button class="nav-button" [class.is-active]="activeTab() === 'home'" (click)="selectTab('home')" type="button">
-      <ion-icon name="home-outline"></ion-icon>
-      <span>Home</span>
-    </button>
-    <button class="nav-button" [class.is-active]="activeTab() === 'live'" (click)="selectTab('live')" type="button">
-      <ion-icon name="mic-outline"></ion-icon>
-      <span>Live</span>
-    </button>
-    <button class="nav-button" [class.is-active]="activeTab() === 'insights'" (click)="selectTab('insights')" type="button">
-      <ion-icon name="bar-chart-outline"></ion-icon>
-      <span>Insights</span>
-    </button>
-    <button class="nav-button" [class.is-active]="activeTab() === 'archive'" (click)="selectTab('archive')" type="button">
-      <ion-icon name="archive-outline"></ion-icon>
-      <span>Archive</span>
-    </button>
-    <button class="nav-button" [class.is-active]="activeTab() === 'profile'" (click)="selectTab('profile')" type="button">
-      <ion-icon name="person-outline"></ion-icon>
-      <span>Profile</span>
-    </button>
-  </nav>
+    <!-- ═══════════════════ FIXED BOTTOM NAVIGATION ═══════════════════ -->
+    <nav class="bottom-nav">
+      <button class="nav-button" [class.is-active]="activeTab() === 'home'" (click)="selectTab('home')" type="button">
+        <ion-icon name="home-outline"></ion-icon>
+        <span>Home</span>
+      </button>
+      <button class="nav-button" [class.is-active]="activeTab() === 'live'" (click)="selectTab('live')" type="button">
+        <ion-icon name="mic-outline"></ion-icon>
+        <span>Live</span>
+      </button>
+      <button class="nav-button" [class.is-active]="activeTab() === 'insights'" (click)="selectTab('insights')" type="button">
+        <ion-icon name="bar-chart-outline"></ion-icon>
+        <span>Insights</span>
+      </button>
+      <button class="nav-button" [class.is-active]="activeTab() === 'archive'" (click)="selectTab('archive')" type="button">
+        <ion-icon name="archive-outline"></ion-icon>
+        <span>Archive</span>
+      </button>
+      <button class="nav-button" [class.is-active]="activeTab() === 'profile'" (click)="selectTab('profile')" type="button">
+        <ion-icon name="person-outline"></ion-icon>
+        <span>Profile</span>
+      </button>
+    </nav>
+  </ion-content>
 </ion-app>
