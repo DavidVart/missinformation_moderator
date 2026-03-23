@@ -1,4 +1,5 @@
 import { Injectable } from "@angular/core";
+import { environment } from "../../../environments/environment";
 
 type InterventionHistoryResponse = {
   interventions: Array<{
@@ -19,12 +20,23 @@ type InterventionHistoryResponse = {
   }>;
 };
 
+function resolveHistoryUrl(): string {
+  if (environment.historyUrl) {
+    return environment.historyUrl;
+  }
+
+  const globalOverride = (globalThis as typeof globalThis & { __VERITAS_HISTORY_URL__?: string }).__VERITAS_HISTORY_URL__;
+  if (globalOverride) {
+    return globalOverride;
+  }
+
+  const defaultHost = globalThis.location?.hostname || "localhost";
+  return `http://${defaultHost}:4004/api/history`;
+}
+
 @Injectable({ providedIn: "root" })
 export class HistoryApiService {
-  private readonly defaultHost = globalThis.location?.hostname || "localhost";
-  private readonly baseUrl =
-    (globalThis as typeof globalThis & { __VERITAS_HISTORY_URL__?: string }).__VERITAS_HISTORY_URL__ ??
-    `http://${this.defaultHost}:4004/api/history`;
+  private readonly baseUrl = resolveHistoryUrl();
 
   async getInterventions(sessionId: string): Promise<InterventionHistoryResponse> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/interventions`);

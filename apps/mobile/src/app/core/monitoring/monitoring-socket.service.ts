@@ -2,6 +2,7 @@ import { Injectable } from "@angular/core";
 import { interventionMessageSchema, transcriptSegmentSchema } from "@project-veritas/contracts";
 import { BehaviorSubject, Subject } from "rxjs";
 import { io, Socket } from "socket.io-client";
+import { environment } from "../../../environments/environment";
 
 type SocketAck = {
   ok: boolean;
@@ -10,7 +11,7 @@ type SocketAck = {
 };
 
 const SOCKET_TIMEOUT_MS = 4000;
-const BACKEND_OFFLINE_MESSAGE = "Fact-check backend is offline. Start the ingestion service on port 4000 and try again.";
+const BACKEND_OFFLINE_MESSAGE = "Fact-check backend is offline. Start the ingestion service and try again.";
 
 function preferredLanguage() {
   const rawLanguage = globalThis.navigator?.language?.trim();
@@ -22,6 +23,23 @@ function preferredLanguage() {
   return language?.toLowerCase();
 }
 
+function resolveSocketUrl(): string {
+  // 1. Explicit environment config (production)
+  if (environment.socketUrl) {
+    return environment.socketUrl;
+  }
+
+  // 2. Runtime override via global variable
+  const globalOverride = (globalThis as typeof globalThis & { __VERITAS_SOCKET_URL__?: string }).__VERITAS_SOCKET_URL__;
+  if (globalOverride) {
+    return globalOverride;
+  }
+
+  // 3. Local dev — same hostname, port 4000
+  const defaultHost = globalThis.location?.hostname || "localhost";
+  return `http://${defaultHost}:4000`;
+}
+
 @Injectable({ providedIn: "root" })
 export class MonitoringSocketService {
   private readonly socket: Socket;
@@ -30,10 +48,7 @@ export class MonitoringSocketService {
   readonly connectionState$ = new BehaviorSubject<"connecting" | "connected" | "offline">("connecting");
 
   constructor() {
-    const defaultHost = globalThis.location?.hostname || "localhost";
-    const socketUrl =
-      (globalThis as typeof globalThis & { __VERITAS_SOCKET_URL__?: string }).__VERITAS_SOCKET_URL__ ??
-      `http://${defaultHost}:4000`;
+    const socketUrl = resolveSocketUrl();
 
     this.socket = io(socketUrl, {
       autoConnect: false,
