@@ -747,7 +747,10 @@ async function refreshSnapshots(pool: Pool) {
 }
 
 async function bootstrap() {
-  const pool = new Pool({ connectionString: env.POSTGRES_URL });
+  const pool = new Pool({
+    connectionString: env.POSTGRES_URL,
+    ssl: { rejectUnauthorized: false }
+  });
   await bootstrapAnalyticsSchema(pool);
   const redis = await createRedisConnection(env.REDIS_URL);
   const sessionConsumer = await createRedisConnection(env.REDIS_URL);

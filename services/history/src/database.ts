@@ -7,7 +7,10 @@ import type {
 import { Pool } from "pg";
 
 export async function createHistoryDatabase(connectionString: string) {
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
   await bootstrapSchema(pool);
   return pool;
 }

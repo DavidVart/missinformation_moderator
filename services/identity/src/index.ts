@@ -257,7 +257,10 @@ async function attachGuestHistory(pool: Pool, userId: string, deviceId: string) 
 }
 
 async function bootstrap() {
-  const pool = new Pool({ connectionString: env.POSTGRES_URL });
+  const pool = new Pool({
+    connectionString: env.POSTGRES_URL,
+    ssl: { rejectUnauthorized: false }
+  });
   await bootstrapIdentitySchema(pool);
 
   app.get("/health", (_request, response) => {

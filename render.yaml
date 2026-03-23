@@ -53,7 +53,7 @@ services:
     region: ohio
     plan: starter
     buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/history
-    startCommand: node services/history/dist/index.js
+    startCommand: node --dns-result-order=ipv4first services/history/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: PORT
@@ -78,7 +78,7 @@ services:
     region: ohio
     plan: starter
     buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/identity
-    startCommand: node services/identity/dist/index.js
+    startCommand: node --dns-result-order=ipv4first services/identity/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: PORT
@@ -107,7 +107,7 @@ services:
     region: ohio
     plan: starter
     buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/analytics
-    startCommand: node services/analytics/dist/index.js
+    startCommand: node --dns-result-order=ipv4first services/analytics/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: PORT
