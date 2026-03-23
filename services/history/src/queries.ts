@@ -18,7 +18,7 @@ export function mapInterventions(rows: Array<Record<string, unknown>>) {
   const byMessageId = new Map<string, {
     messageId: string;
     claimId: string;
-    userId?: string;
+    userId?: string | undefined;
     mode: string;
     verdict: string;
     confidence: number;

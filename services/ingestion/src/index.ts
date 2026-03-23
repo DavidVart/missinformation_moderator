@@ -64,12 +64,12 @@ app.get("/health", (_request, response) => {
 type SessionMeta = {
   socketId: string;
   deviceId: string;
-  userId?: string;
+  userId?: string | undefined;
   mode: z.infer<typeof sessionStartPayloadSchema>["mode"];
   startedAt: string;
   chunkMs: number;
   sampleRate: number;
-  preferredLanguage?: string;
+  preferredLanguage?: string | undefined;
 };
 
 function createMockTranscriptSegment(payload: z.infer<typeof socketAudioChunkPayloadSchema>) {
