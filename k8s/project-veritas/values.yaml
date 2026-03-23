@@ -1,0 +1,108 @@
+image:
+  repository: ghcr.io/example/project-veritas
+  tag: latest
+  pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: nginx
+  host: veritas.local
+
+env:
+  logLevel: info
+  redisUrl: redis://project-veritas-redis:6379
+  postgresUrl: postgresql://postgres:postgres@project-veritas-postgres:5432/veritas
+  openAiModel: gpt-4o-mini
+  interventionConfidenceThreshold: "0.75"
+  sessionTtlSeconds: "3600"
+  whisperWorkerUrl: http://project-veritas-whisper-worker:8000
+  corsOrigin: https://veritas.local
+
+services:
+  ingestion:
+    enabled: true
+    port: 4000
+    command: ["node", "--import", "tsx", "services/ingestion/src/index.ts"]
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  transcription:
+    enabled: true
+    port: 4001
+    command: ["node", "--import", "tsx", "services/transcription/src/index.ts"]
+    replicas: 1
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 70
+  reasoning:
+    enabled: true
+    port: 4002
+    command: ["node", "--import", "tsx", "services/reasoning/src/index.ts"]
+    replicas: 1
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+  notification:
+    enabled: true
+    port: 4003
+    command: ["node", "--import", "tsx", "services/notification/src/index.ts"]
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  history:
+    enabled: true
+    port: 4004
+    command: ["node", "--import", "tsx", "services/history/src/index.ts"]
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  whisper-worker:
+    enabled: true
+    port: 8000
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+    image:
+      repository: ghcr.io/example/project-veritas-whisper-worker
+      tag: latest
+      pullPolicy: IfNotPresent
+    replicas: 1
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+resourceQuota:
+  requestsCpu: 5
+  requestsMemory: 8Gi
+  limitsCpu: 10
+  limitsMemory: 16Gi

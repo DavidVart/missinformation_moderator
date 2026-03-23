@@ -1,0 +1,66 @@
+- main [ref=e4]:
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - img [ref=e12]:
+          - img [ref=e14]
+        - generic [ref=e17]:
+          - paragraph [ref=e18]: Arbiter
+          - paragraph [ref=e19]: Ready
+      - generic [ref=e20]:
+        - generic [ref=e23]: Linked
+        - button "Settings" [ref=e24] [cursor=pointer]:
+          - img [ref=e25]:
+            - img [ref=e27]
+    - main [ref=e29]:
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e48]: Digital Curator Protocol
+          - heading "The Truth Matters" [level=1] [ref=e49]:
+            - text: The Truth
+            - generic [ref=e50]: Matters
+          - paragraph [ref=e51]: Arbiter acts as your sophisticated, silent observer. We curate live conversations to identify dissonance and preserve the integrity of dialogue.
+          - generic [ref=e52]:
+            - article [ref=e53]:
+              - generic [ref=e54]: Transport
+              - strong [ref=e55]: Linked
+            - article [ref=e56]:
+              - generic [ref=e57]: Window
+              - strong [ref=e58]: 4s rolling
+            - article [ref=e59]:
+              - generic [ref=e60]: Cadence
+              - strong [ref=e61]: 2s overlap
+        - generic [ref=e62]:
+          - article [ref=e63]:
+            - img [ref=e65]:
+              - img [ref=e67]
+            - heading "Integrity First" [level=2] [ref=e70]
+            - paragraph [ref=e71]: Advanced neural patterns detect factual inconsistencies in real-time.
+          - article [ref=e72]:
+            - img [ref=e74]:
+              - img [ref=e76]
+            - heading "Neutral Stance" [level=2] [ref=e78]
+            - paragraph [ref=e79]: Our algorithm maintains zero bias, focusing only on structural logic.
+          - article [ref=e80]:
+            - img [ref=e82]:
+              - img [ref=e84]
+            - heading "Aural Depth" [level=2] [ref=e87]
+            - paragraph [ref=e88]: Sophisticated voice fingerprinting and overlap-aware transcription preserve accountability.
+        - button "Start Moderating" [ref=e89] [cursor=pointer]:
+          - img [ref=e90]:
+            - img [ref=e92]
+          - generic [ref=e95]: Start Moderating
+        - generic [ref=e98]: Ready to analyze current frequencies
+    - navigation [ref=e99]:
+      - button "Sessions" [ref=e100] [cursor=pointer]:
+        - img [ref=e101]:
+          - img [ref=e103]
+        - generic [ref=e106]: Sessions
+      - button "Insights" [ref=e107] [cursor=pointer]:
+        - img [ref=e108]:
+          - img [ref=e110]
+        - generic [ref=e115]: Insights
+      - button "Archive" [ref=e116] [cursor=pointer]:
+        - img [ref=e117]:
+          - img [ref=e119]
+        - generic [ref=e123]: Archive

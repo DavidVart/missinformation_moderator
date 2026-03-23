@@ -1,0 +1,54 @@
+- main [ref=e4]:
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - img [ref=e12]:
+          - img [ref=e14]
+        - generic [ref=e17]:
+          - paragraph [ref=e18]: Arbiter
+          - paragraph [ref=e19]: Ready
+      - button "Settings" [ref=e20] [cursor=pointer]:
+        - img [ref=e21]:
+          - img [ref=e23]
+    - main [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e44]: Digital Curator Protocol
+          - heading "The Truth Matters" [level=1] [ref=e45]:
+            - text: The Truth
+            - generic [ref=e46]: Matters
+          - paragraph [ref=e47]: Arbiter acts as your sophisticated, silent observer. We curate live conversations to identify dissonance and preserve the integrity of dialogue.
+        - generic [ref=e48]:
+          - article [ref=e49]:
+            - img [ref=e51]:
+              - img [ref=e53]
+            - heading "Integrity First" [level=2] [ref=e56]
+            - paragraph [ref=e57]: Advanced neural patterns detect factual inconsistencies in real-time.
+          - article [ref=e58]:
+            - img [ref=e60]:
+              - img [ref=e62]
+            - heading "Neutral Stance" [level=2] [ref=e64]
+            - paragraph [ref=e65]: Our algorithm maintains zero bias, focusing only on structural logic.
+          - article [ref=e66]:
+            - img [ref=e68]:
+              - img [ref=e70]
+            - heading "Aural Depth" [level=2] [ref=e73]
+            - paragraph [ref=e74]: Sophisticated voice fingerprinting and overlap-aware transcription preserve accountability.
+        - button "Start Moderating" [ref=e75] [cursor=pointer]:
+          - img [ref=e76]:
+            - img [ref=e78]
+          - generic [ref=e81]: Start Moderating
+        - generic [ref=e84]: Ready to analyze current frequencies
+    - navigation [ref=e85]:
+      - button "Sessions" [ref=e86] [cursor=pointer]:
+        - img [ref=e87]:
+          - img [ref=e89]
+        - generic [ref=e92]: Sessions
+      - button "Insights" [ref=e93] [cursor=pointer]:
+        - img [ref=e94]:
+          - img [ref=e96]
+        - generic [ref=e101]: Insights
+      - button "Archive" [ref=e102] [cursor=pointer]:
+        - img [ref=e103]:
+          - img [ref=e105]
+        - generic [ref=e109]: Archive

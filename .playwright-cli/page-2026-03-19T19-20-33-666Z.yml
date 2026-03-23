@@ -1,0 +1,53 @@
+- main [ref=e4]:
+  - generic [ref=e8]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e12]: A
+        - generic [ref=e13]:
+          - paragraph [ref=e14]: Arbiter
+          - paragraph [ref=e15]: Ready
+      - button "Settings" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]:
+          - img [ref=e19]
+    - main [ref=e21]:
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e40]: Digital Curator Protocol
+          - heading "The Truth Matters" [level=1] [ref=e41]:
+            - text: The Truth
+            - generic [ref=e42]: Matters
+          - paragraph [ref=e43]: Arbiter acts as your sophisticated, silent observer. We curate live conversations to identify dissonance and preserve the integrity of dialogue.
+        - generic [ref=e44]:
+          - article [ref=e45]:
+            - img [ref=e47]:
+              - img [ref=e49]
+            - heading "Integrity First" [level=2] [ref=e52]
+            - paragraph [ref=e53]: Advanced neural patterns detect factual inconsistencies in real-time.
+          - article [ref=e54]:
+            - img [ref=e56]:
+              - img [ref=e58]
+            - heading "Neutral Stance" [level=2] [ref=e60]
+            - paragraph [ref=e61]: Our algorithm maintains zero bias, focusing only on structural logic.
+          - article [ref=e62]:
+            - img [ref=e64]:
+              - img [ref=e66]
+            - heading "Aural Depth" [level=2] [ref=e69]
+            - paragraph [ref=e70]: Sophisticated voice fingerprinting and overlap-aware transcription preserve accountability.
+        - button "Start Moderating" [ref=e71] [cursor=pointer]:
+          - img [ref=e72]:
+            - img [ref=e74]
+          - generic [ref=e77]: Start Moderating
+        - generic [ref=e80]: Ready to analyze current frequencies
+    - navigation [ref=e81]:
+      - button "Sessions" [ref=e82] [cursor=pointer]:
+        - img [ref=e83]:
+          - img [ref=e85]
+        - generic [ref=e88]: Sessions
+      - button "Insights" [ref=e89] [cursor=pointer]:
+        - img [ref=e90]:
+          - img [ref=e92]
+        - generic [ref=e97]: Insights
+      - button "Archive" [ref=e98] [cursor=pointer]:
+        - img [ref=e99]:
+          - img [ref=e101]
+        - generic [ref=e105]: Archive

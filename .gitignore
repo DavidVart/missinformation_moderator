@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.angular
+.vite
+.DS_Store
+*.log
+.env
+.env.local
+tmp
+postgres-data
+redis-data
+apps/mobile/.angular
+apps/mobile/www
+apps/mobile/.capacitor

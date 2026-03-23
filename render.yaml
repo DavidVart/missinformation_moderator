@@ -1,0 +1,153 @@
+# Render Blueprint — Real Talk Backend Services
+# https://render.com/docs/blueprint-spec
+#
+# Deploy: connect your GitHub repo in Render Dashboard, it will detect this file.
+# All services share the same env group "real-talk-env" for secrets.
+
+envVarGroups:
+  - name: real-talk-env
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: WHISPER_WORKER_URL
+        sync: false
+      - key: WHISPER_MODEL
+        value: base
+      - key: WHISPER_LANGUAGE
+        value: ""
+      - key: INTERVENTION_CONFIDENCE_THRESHOLD
+        value: "0.75"
+      - key: SESSION_TTL_SECONDS
+        value: "3600"
+      - key: CORS_ORIGIN
+        sync: false
+      - key: LOG_LEVEL
+        value: info
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        value: realtalk
+      - key: PINECONE_ENVIRONMENT
+        value: us-east-1
+      - key: NODE_ENV
+        value: production
+
+services:
+  # ── Ingestion (Socket.io — needs WebSocket support) ──
+  - type: web
+    name: real-talk-ingestion
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/ingestion
+    startCommand: node services/ingestion/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4000"
+    envVarGroups:
+      - real-talk-env
+
+  # ── History (REST API + Postgres persistence) ──
+  - type: web
+    name: real-talk-history
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/history
+    startCommand: node services/history/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4004"
+    envVarGroups:
+      - real-talk-env
+
+  # ── Identity (Auth API — will be slimmed down once Clerk is integrated) ──
+  - type: web
+    name: real-talk-identity
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/identity
+    startCommand: node services/identity/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4005"
+    envVarGroups:
+      - real-talk-env
+
+  # ── Analytics (REST API + stream consumer) ──
+  - type: web
+    name: real-talk-analytics
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/analytics
+    startCommand: node services/analytics/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4006"
+    envVarGroups:
+      - real-talk-env
+
+  # ── Transcription (stream consumer + health endpoint) ──
+  - type: web
+    name: real-talk-transcription
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/transcription
+    startCommand: node services/transcription/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4001"
+    envVarGroups:
+      - real-talk-env
+
+  # ── Reasoning (stream consumer + health endpoint) ──
+  - type: web
+    name: real-talk-reasoning
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/reasoning
+    startCommand: node services/reasoning/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4002"
+    envVarGroups:
+      - real-talk-env
+
+  # ── Notification (stream consumer + health endpoint) ──
+  - type: web
+    name: real-talk-notification
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/notification
+    startCommand: node services/notification/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4003"
+    envVarGroups:
+      - real-talk-env

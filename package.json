@@ -1,0 +1,42 @@
+{
+  "name": "project-veritas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time fact-checking platform built as a microservices monorepo.",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.18.0"
+  },
+  "scripts": {
+    "build": "npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/ingestion && npm run build -w @project-veritas/transcription && npm run build -w @project-veritas/reasoning && npm run build -w @project-veritas/notification && npm run build -w @project-veritas/history && npm run build -w @project-veritas/mobile",
+    "test": "npm run test -w @project-veritas/contracts && npm run test -w @project-veritas/config && npm run test -w @project-veritas/observability && npm run test -w @project-veritas/ingestion && npm run test -w @project-veritas/transcription && npm run test -w @project-veritas/reasoning && npm run test -w @project-veritas/notification && npm run test -w @project-veritas/history && npm run test -w @project-veritas/mobile",
+    "typecheck": "npm run typecheck -w @project-veritas/contracts && npm run typecheck -w @project-veritas/config && npm run typecheck -w @project-veritas/observability && npm run typecheck -w @project-veritas/ingestion && npm run typecheck -w @project-veritas/transcription && npm run typecheck -w @project-veritas/reasoning && npm run typecheck -w @project-veritas/notification && npm run typecheck -w @project-veritas/history && npm run typecheck -w @project-veritas/mobile",
+    "check": "npm run typecheck && npm run test",
+    "dev:compose": "docker compose up --build",
+    "dev:mobile": "npm run start -w @project-veritas/mobile",
+    "dev:ingestion": "npm run dev -w @project-veritas/ingestion",
+    "dev:ingestion:mock": "node scripts/mock-ingestion-server.cjs",
+    "dev:transcription": "npm run dev -w @project-veritas/transcription",
+    "dev:reasoning": "npm run dev -w @project-veritas/reasoning",
+    "dev:notification": "npm run dev -w @project-veritas/notification",
+    "dev:history": "npm run dev -w @project-veritas/history",
+    "backend:local:start": "bash scripts/start-local-backend.sh",
+    "backend:local:stop": "bash scripts/stop-local-backend.sh",
+    "workspace:local:start": "bash scripts/start-local-workspace.sh",
+    "workspace:local:stop": "bash scripts/stop-local-workspace.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/pg": "^8.15.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  },
+  "dependencies": {
+    "redis": "^4.7.1"
+  }
+}

@@ -1,0 +1,78 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "project-veritas.serviceName" (dict "name" $name "Release" $.Release "Values" $.Values "Chart" $.Chart) }}
+  labels:
+    app.kubernetes.io/name: {{ include "project-veritas.name" $ }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ $service.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "project-veritas.name" $ }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "project-veritas.name" $ }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: {{ dig "image" "repository" $.Values.image.repository $service }}:{{ dig "image" "tag" $.Values.image.tag $service }}
+          imagePullPolicy: {{ dig "image" "pullPolicy" $.Values.image.pullPolicy $service }}
+          command:
+{{ toYaml $service.command | indent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $service.port }}
+          env:
+            - name: LOG_LEVEL
+              value: {{ $.Values.env.logLevel | quote }}
+            - name: REDIS_URL
+              value: {{ $.Values.env.redisUrl | quote }}
+            - name: POSTGRES_URL
+              value: {{ $.Values.env.postgresUrl | quote }}
+            - name: OPENAI_MODEL
+              value: {{ $.Values.env.openAiModel | quote }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-api
+                  key: apiKey
+                  optional: true
+            - name: TAVILY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tavily-api
+                  key: apiKey
+                  optional: true
+            - name: INTERVENTION_CONFIDENCE_THRESHOLD
+              value: {{ $.Values.env.interventionConfidenceThreshold | quote }}
+            - name: SESSION_TTL_SECONDS
+              value: {{ $.Values.env.sessionTtlSeconds | quote }}
+            - name: WHISPER_WORKER_URL
+              value: {{ $.Values.env.whisperWorkerUrl | quote }}
+            - name: CORS_ORIGIN
+              value: {{ $.Values.env.corsOrigin | quote }}
+            - name: PORT
+              value: {{ $service.port | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+{{ toYaml $service.resources | indent 12 }}
+---
+{{- end }}
+{{- end }}

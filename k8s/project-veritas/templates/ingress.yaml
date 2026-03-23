@@ -1,0 +1,29 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "project-veritas.fullname" . }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "project-veritas.serviceName" (dict "name" "ingestion" "Release" .Release "Values" .Values "Chart" .Chart) }}
+                port:
+                  number: {{ .Values.services.ingestion.port }}
+          - path: /api/history
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "project-veritas.serviceName" (dict "name" "history" "Release" .Release "Values" .Values "Chart" .Chart) }}
+                port:
+                  number: {{ .Values.services.history.port }}
+{{- end }}

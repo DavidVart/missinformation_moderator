@@ -1,0 +1,20 @@
+{{- if .Values.services.transcription.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "project-veritas.serviceName" (dict "name" "transcription" "Release" .Release "Values" .Values "Chart" .Chart) }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "project-veritas.serviceName" (dict "name" "transcription" "Release" .Release "Values" .Values "Chart" .Chart) }}
+  minReplicas: {{ .Values.services.transcription.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.services.transcription.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.services.transcription.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

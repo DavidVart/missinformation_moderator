@@ -1,0 +1,20 @@
+{{- range $name, $service := .Values.services }}
+{{- if $service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "project-veritas.serviceName" (dict "name" $name "Release" $.Release "Values" $.Values "Chart" $.Chart) }}
+  labels:
+    app.kubernetes.io/name: {{ include "project-veritas.name" $ }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "project-veritas.name" $ }}
+    app.kubernetes.io/component: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $service.port }}
+      targetPort: http
+---
+{{- end }}
+{{- end }}

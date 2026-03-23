@@ -1,0 +1,126 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: veritas
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d veritas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  whisper-worker:
+    build:
+      context: .
+      dockerfile: infra/faster-whisper-worker/Dockerfile
+    environment:
+      WHISPER_MODEL: tiny
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  ingestion:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+    command: ["node", "--import", "tsx", "services/ingestion/src/index.ts"]
+    environment:
+      PORT: 4000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-3600}
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+
+  transcription:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+    command: ["node", "--import", "tsx", "services/transcription/src/index.ts"]
+    environment:
+      PORT: 4001
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      WHISPER_WORKER_URL: ${WHISPER_WORKER_URL:-http://whisper-worker:8000}
+    depends_on:
+      redis:
+        condition: service_healthy
+      whisper-worker:
+        condition: service_healthy
+
+  reasoning:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+    command: ["node", "--import", "tsx", "services/reasoning/src/index.ts"]
+    environment:
+      PORT: 4002
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  notification:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+    command: ["node", "--import", "tsx", "services/notification/src/index.ts"]
+    environment:
+      PORT: 4003
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      INTERVENTION_CONFIDENCE_THRESHOLD: ${INTERVENTION_CONFIDENCE_THRESHOLD:-0.75}
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  history:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+    command: ["node", "--import", "tsx", "services/history/src/index.ts"]
+    environment:
+      PORT: 4004
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/veritas}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4004:4004"
+
+volumes:
+  postgres-data:

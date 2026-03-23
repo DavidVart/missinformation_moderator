@@ -1,0 +1,72 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+  --arb-bg: #f8f9fc;
+  --arb-surface: #ffffff;
+  --arb-surface-soft: #f2f4f6;
+  --arb-surface-muted: #eceef0;
+  --arb-primary: #004b63;
+  --arb-primary-strong: #003345;
+  --arb-secondary: #00838f;
+  --arb-secondary-soft: #8feefc;
+  --arb-tertiary: #972f03;
+  --arb-text: #191c1e;
+  --arb-muted: #5f6b73;
+  --arb-muted-strong: #405055;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+}
+
+body,
+app-root,
+ion-app,
+ion-content {
+  width: 100%;
+  min-height: 100vh;
+}
+
+ion-app,
+ion-content {
+  background: var(--arb-bg);
+}
+
+ion-app,
+ion-content,
+ion-card,
+ion-card-header,
+ion-card-content,
+ion-list,
+ion-item,
+ion-label {
+  display: block;
+}
+
+ion-chip,
+ion-badge {
+  display: inline-flex;
+  align-items: center;
+}
+
+ion-button {
+  display: inline-block;
+}
+
+ion-note,
+ion-icon {
+  display: inline-flex;
+}
+
+ion-content::part(scroll) {
+  padding-bottom: 2.5rem;
+}
