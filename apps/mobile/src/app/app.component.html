@@ -367,16 +367,16 @@
             @if (auth.authState().status === 'awaiting-code' || auth.authState().status === 'verifying') {
               <article class="auth-card">
                 <div class="auth-card__header">
-                  <ion-icon name="mail-outline"></ion-icon>
+                  <ion-icon name="checkmark-circle-outline"></ion-icon>
                   <div>
-                    <h2>Check your email</h2>
-                    <p>We sent a verification code to your email.</p>
+                    <h2>Enter your code</h2>
+                    <p>Use the verification code below to sign in.</p>
                   </div>
                 </div>
 
                 @if (authPreviewCode()) {
                   <div class="auth-preview-code">
-                    Dev code: <strong>{{ authPreviewCode() }}</strong>
+                    Your code: <strong>{{ authPreviewCode() }}</strong>
                   </div>
                 }
 

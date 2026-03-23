@@ -285,10 +285,12 @@ async function bootstrap() {
 
     logger.info({ email: payload.email, token }, "Generated development magic link token");
 
+    // Always return the preview code until an email transport (e.g. Resend) is configured.
+    // TODO: integrate email provider and gate previewCode behind NODE_ENV !== "production".
     response.json(magicLinkStartResponseSchema.parse({
       ok: true,
       expiresInMinutes: env.MAGIC_LINK_TTL_MINUTES,
-      previewCode: env.NODE_ENV === "production" ? undefined : token
+      previewCode: token
     }));
   });
 
