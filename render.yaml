@@ -15,7 +15,7 @@ services:
     runtime: node
     region: ohio
     plan: starter
-    buildCommand: NPM_CONFIG_PRODUCTION=false npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/ingestion
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/ingestion
     startCommand: node services/ingestion/dist/index.js
     healthCheckPath: /health
     envVars:
