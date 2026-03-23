@@ -1,132 +1,104 @@
-import { Injectable, inject, signal, computed } from "@angular/core";
-import { IdentityApiService, UserInfo, UserProfile } from "./identity-api.service";
+import { Injectable, signal, computed } from "@angular/core";
+import { Clerk } from "@clerk/clerk-js";
+import { environment } from "../../../environments/environment";
 
-type AuthState =
-  | { status: "signed-out" }
-  | { status: "awaiting-code"; email: string }
-  | { status: "verifying" }
-  | { status: "signed-in"; accessToken: string; user: UserInfo; profile: UserProfile };
-
-const STORAGE_KEY = "real-talk-auth";
+type ClerkUser = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  fullName: string | null;
+  primaryEmailAddress: { emailAddress: string } | null;
+  imageUrl: string;
+};
 
 @Injectable({ providedIn: "root" })
 export class AuthService {
-  private readonly identityApi = inject(IdentityApiService);
-  private readonly state = signal<AuthState>(this.restoreSession());
+  private clerk: Clerk | null = null;
+  private readonly _isReady = signal(false);
+  private readonly _user = signal<ClerkUser | null>(null);
 
-  readonly authState = this.state.asReadonly();
-  readonly isSignedIn = computed(() => this.state().status === "signed-in");
-  readonly currentUser = computed(() => {
-    const s = this.state();
-    return s.status === "signed-in" ? s.user : null;
-  });
-  readonly currentProfile = computed(() => {
-    const s = this.state();
-    return s.status === "signed-in" ? s.profile : null;
-  });
-  readonly accessToken = computed(() => {
-    const s = this.state();
-    return s.status === "signed-in" ? s.accessToken : null;
-  });
-
-  private getDeviceId(): string {
-    const key = "real-talk-device-id";
-    let id = globalThis.localStorage?.getItem(key);
-    if (!id) {
-      id = crypto.randomUUID();
-      globalThis.localStorage?.setItem(key, id);
+  readonly isReady = this._isReady.asReadonly();
+  readonly isSignedIn = computed(() => !!this._user());
+  readonly currentUser = this._user.asReadonly();
+  readonly displayName = computed(() => {
+    const user = this._user();
+    if (!user) {
+      return "Guest";
     }
-    return id;
-  }
+    return user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress?.split("@")[0] || "User";
+  });
+  readonly email = computed(() => this._user()?.primaryEmailAddress?.emailAddress ?? null);
+  readonly avatarUrl = computed(() => this._user()?.imageUrl ?? null);
+  readonly userId = computed(() => this._user()?.id ?? null);
 
-  async requestMagicLink(email: string): Promise<{ previewCode?: string }> {
-    const result = await this.identityApi.startMagicLink(email, this.getDeviceId());
-    this.state.set({ status: "awaiting-code", email });
-    return { previewCode: result.previewCode };
-  }
-
-  async verifyCode(code: string): Promise<void> {
-    const current = this.state();
-    if (current.status !== "awaiting-code") {
-      throw new Error("No pending magic link to verify");
+  async init() {
+    if (!environment.clerkPublishableKey || this.clerk) {
+      return;
     }
-
-    this.state.set({ status: "verifying" });
 
     try {
-      const result = await this.identityApi.verifyMagicLink(current.email, code, this.getDeviceId());
-      const signedIn: AuthState = {
-        status: "signed-in",
-        accessToken: result.accessToken,
-        user: result.user,
-        profile: result.profile
-      };
-      this.state.set(signedIn);
-      this.persistSession(signedIn);
+      this.clerk = new Clerk(environment.clerkPublishableKey);
+      await this.clerk.load();
+      this.syncUser();
+
+      // Listen for session changes
+      this.clerk.addListener(() => {
+        this.syncUser();
+      });
+
+      this._isReady.set(true);
     } catch (error) {
-      this.state.set({ status: "awaiting-code", email: current.email });
-      throw error;
+      console.error("Clerk initialization failed:", error);
     }
   }
 
-  async refreshProfile(): Promise<void> {
-    const token = this.accessToken();
-    if (!token) {
+  async openSignIn() {
+    if (!this.clerk) {
       return;
     }
 
-    try {
-      const profile = await this.identityApi.getProfile(token);
-      const current = this.state();
-      if (current.status === "signed-in") {
-        const updated: AuthState = { ...current, profile };
-        this.state.set(updated);
-        this.persistSession(updated);
-      }
-    } catch {
-      // Token may have expired — sign out
-      this.signOut();
-    }
+    this.clerk.openSignIn({});
   }
 
-  signOut() {
-    this.state.set({ status: "signed-out" });
-    globalThis.localStorage?.removeItem(STORAGE_KEY);
-  }
-
-  cancelMagicLink() {
-    this.state.set({ status: "signed-out" });
-  }
-
-  private persistSession(state: AuthState) {
-    if (state.status !== "signed-in") {
+  async openSignUp() {
+    if (!this.clerk) {
       return;
     }
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify({
-      accessToken: state.accessToken,
-      user: state.user,
-      profile: state.profile
-    }));
+
+    this.clerk.openSignUp({});
   }
 
-  private restoreSession(): AuthState {
-    try {
-      const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
-      if (!raw) {
-        return { status: "signed-out" };
-      }
-      const data = JSON.parse(raw) as { accessToken: string; user: UserInfo; profile: UserProfile };
-      if (data.accessToken && data.user && data.profile) {
-        return {
-          status: "signed-in",
-          accessToken: data.accessToken,
-          user: data.user,
-          profile: data.profile
-        };
-      }
-    } catch {
-      // Corrupted storage — ignore
+  async openUserProfile() {
+    if (!this.clerk) {
+      return;
     }
-    return { status: "signed-out" };
+    this.clerk.openUserProfile();
+  }
+
+  async signOut() {
+    if (!this.clerk) {
+      return;
+    }
+
+    await this.clerk.signOut();
+    this._user.set(null);
+  }
+
+  private syncUser() {
+    const clerkUser = this.clerk?.user;
+    if (clerkUser) {
+      this._user.set({
+        id: clerkUser.id,
+        firstName: clerkUser.firstName,
+        lastName: clerkUser.lastName,
+        fullName: clerkUser.fullName,
+        primaryEmailAddress: clerkUser.primaryEmailAddress
+          ? { emailAddress: clerkUser.primaryEmailAddress.emailAddress }
+          : null,
+        imageUrl: clerkUser.imageUrl
+      });
+    } else {
+      this._user.set(null);
+    }
   }
 }

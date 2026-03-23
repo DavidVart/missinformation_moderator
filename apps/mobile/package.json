@@ -22,6 +22,7 @@
     "@capacitor/android": "^7.2.0",
     "@capacitor/core": "^7.2.0",
     "@capacitor/ios": "^7.2.0",
+    "@clerk/clerk-js": "^6.3.2",
     "@ionic/angular": "^8.4.2",
     "@project-veritas/contracts": "*",
     "@sentry/angular": "^10.45.0",

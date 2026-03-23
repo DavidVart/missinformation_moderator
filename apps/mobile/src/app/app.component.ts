@@ -1,6 +1,6 @@
 import { CommonModule } from "@angular/common";
 import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from "@angular/core";
-import { FormsModule } from "@angular/forms";
+// FormsModule no longer needed — Clerk handles its own UI
 import { IonApp, IonIcon, IonSpinner } from "@ionic/angular/standalone";
 import { addIcons } from "ionicons";
 import {
@@ -13,7 +13,6 @@ import {
   flashOutline,
   homeOutline,
   logOutOutline,
-  mailOutline,
   micOutline,
   personOutline,
   pulseOutline,
@@ -76,7 +75,6 @@ function buildMeterBars(count: number, phase: number, intensity: number, minHeig
   selector: "app-root",
   imports: [
     CommonModule,
-    FormsModule,
     IonApp,
     IonIcon,
     IonSpinner
@@ -94,13 +92,6 @@ export class AppComponent implements OnDestroy {
   private readonly posthog = inject(PosthogService);
   protected readonly auth = inject(AuthService);
   private readonly subscriptions = new Subscription();
-
-  // Auth UI state
-  protected readonly authEmail = signal("");
-  protected readonly authCode = signal("");
-  protected readonly authError = signal<string | null>(null);
-  protected readonly authBusy = signal(false);
-  protected readonly authPreviewCode = signal<string | null>(null);
 
   protected readonly isMonitoring = signal(false);
   protected readonly isBusy = signal(false);
@@ -311,7 +302,6 @@ export class AppComponent implements OnDestroy {
       flashOutline,
       homeOutline,
       logOutOutline,
-      mailOutline,
       micOutline,
       personOutline,
       pulseOutline,
@@ -326,8 +316,9 @@ export class AppComponent implements OnDestroy {
       warningOutline
     });
 
-    // Initialize PostHog analytics
+    // Initialize SDKs
     this.posthog.init();
+    void this.auth.init();
 
     this.subscriptions.add(
       this.socketService.connectionState$.subscribe((state) => {
@@ -444,69 +435,26 @@ export class AppComponent implements OnDestroy {
     void this.startMonitoring();
   }
 
-  // ───────────────────── Auth methods ─────────────────────
+  // ───────────────────── Auth methods (Clerk) ─────────────────────
 
-  protected async requestMagicLink() {
-    const email = this.authEmail().trim();
-    if (!email) {
-      this.authError.set("Please enter your email address");
-      return;
-    }
-
-    this.authBusy.set(true);
-    this.authError.set(null);
-
-    try {
-      const result = await this.auth.requestMagicLink(email);
-      this.authPreviewCode.set(result.previewCode ?? null);
-      this.posthog.capture("magic_link_requested", { email });
-    } catch (error) {
-      this.authError.set(error instanceof Error ? error.message : "Unable to send magic link");
-    } finally {
-      this.authBusy.set(false);
-    }
+  protected openSignIn() {
+    this.posthog.capture("sign_in_opened");
+    void this.auth.openSignIn();
   }
 
-  protected async verifyMagicLink() {
-    const code = this.authCode().trim();
-    if (!code) {
-      this.authError.set("Please enter the verification code");
-      return;
-    }
+  protected openSignUp() {
+    this.posthog.capture("sign_up_opened");
+    void this.auth.openSignUp();
+  }
 
-    this.authBusy.set(true);
-    this.authError.set(null);
-
-    try {
-      await this.auth.verifyCode(code);
-      this.authEmail.set("");
-      this.authCode.set("");
-      this.authPreviewCode.set(null);
-
-      const user = this.auth.currentUser();
-      if (user) {
-        this.posthog.identify(user.userId, { email: user.email });
-        this.posthog.capture("sign_in_completed");
-      }
-    } catch (error) {
-      this.authError.set(error instanceof Error ? error.message : "Verification failed");
-    } finally {
-      this.authBusy.set(false);
-    }
+  protected openUserProfile() {
+    void this.auth.openUserProfile();
   }
 
   protected signOut() {
     this.posthog.capture("sign_out");
     this.posthog.reset();
-    this.auth.signOut();
-  }
-
-  protected cancelAuth() {
-    this.auth.cancelMagicLink();
-    this.authEmail.set("");
-    this.authCode.set("");
-    this.authError.set(null);
-    this.authPreviewCode.set(null);
+    void this.auth.signOut();
   }
 
   // ───────────────────── Monitoring ─────────────────────
