@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -12,11 +11,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "paths": {
-      "@project-veritas/contracts": ["packages/contracts/src/index.ts"],
-      "@project-veritas/config": ["packages/config/src/index.ts"],
-      "@project-veritas/observability": ["packages/observability/src/index.ts"]
-    }
+    "exactOptionalPropertyTypes": true
   }
 }
