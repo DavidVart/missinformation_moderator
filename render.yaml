@@ -2,49 +2,11 @@
 # https://render.com/docs/blueprint-spec
 #
 # Deploy: connect your GitHub repo in Render Dashboard, it will detect this file.
-# All services share the same env group "real-talk-env" for secrets.
-
-envVarGroups:
-  - name: real-talk-env
-    envVars:
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: TAVILY_API_KEY
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: POSTGRES_URL
-        sync: false
-      - key: WHISPER_WORKER_URL
-        sync: false
-      - key: WHISPER_MODEL
-        value: base
-      - key: WHISPER_LANGUAGE
-        value: ""
-      - key: INTERVENTION_CONFIDENCE_THRESHOLD
-        value: "0.75"
-      - key: SESSION_TTL_SECONDS
-        value: "3600"
-      - key: CORS_ORIGIN
-        sync: false
-      - key: LOG_LEVEL
-        value: info
-      - key: CLERK_SECRET_KEY
-        sync: false
-      - key: CLERK_WEBHOOK_SECRET
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-      - key: PINECONE_API_KEY
-        sync: false
-      - key: PINECONE_INDEX
-        value: realtalk
-      - key: PINECONE_ENVIRONMENT
-        value: us-east-1
-      - key: NODE_ENV
-        value: production
+#
+# IMPORTANT: After deploying, create an Environment Group called "real-talk-env"
+# in Render Dashboard (Environment → Env Groups) with your secrets (OPENAI_API_KEY,
+# TAVILY_API_KEY, REDIS_URL, POSTGRES_URL, etc.), then link it to all services.
+# The blueprint only defines non-secret env vars inline.
 
 services:
   # ── Ingestion (Socket.io — needs WebSocket support) ──
@@ -59,8 +21,30 @@ services:
     envVars:
       - key: PORT
         value: "4000"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: WHISPER_MODEL
+        value: base
+      - key: INTERVENTION_CONFIDENCE_THRESHOLD
+        value: "0.75"
+      - key: SESSION_TTL_SECONDS
+        value: "3600"
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
   # ── History (REST API + Postgres persistence) ──
   - type: web
@@ -74,10 +58,20 @@ services:
     envVars:
       - key: PORT
         value: "4004"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: REDIS_URL
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
-  # ── Identity (Auth API — will be slimmed down once Clerk is integrated) ──
+  # ── Identity (Auth API) ──
   - type: web
     name: real-talk-identity
     runtime: node
@@ -89,8 +83,22 @@ services:
     envVars:
       - key: PORT
         value: "4005"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: REDIS_URL
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
   # ── Analytics (REST API + stream consumer) ──
   - type: web
@@ -104,8 +112,22 @@ services:
     envVars:
       - key: PORT
         value: "4006"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: REDIS_URL
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
   # ── Transcription (stream consumer + health endpoint) ──
   - type: web
@@ -119,8 +141,18 @@ services:
     envVars:
       - key: PORT
         value: "4001"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: REDIS_URL
+        sync: false
+      - key: WHISPER_WORKER_URL
+        sync: false
+      - key: WHISPER_MODEL
+        value: base
+      - key: SENTRY_DSN
+        sync: false
 
   # ── Reasoning (stream consumer + health endpoint) ──
   - type: web
@@ -134,8 +166,20 @@ services:
     envVars:
       - key: PORT
         value: "4002"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
   # ── Notification (stream consumer + health endpoint) ──
   - type: web
@@ -149,5 +193,15 @@ services:
     envVars:
       - key: PORT
         value: "4003"
-    envVarGroups:
-      - real-talk-env
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: REDIS_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: INTERVENTION_CONFIDENCE_THRESHOLD
+        value: "0.75"
+      - key: SENTRY_DSN
+        sync: false
