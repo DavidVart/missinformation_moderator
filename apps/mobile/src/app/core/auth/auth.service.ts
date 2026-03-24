@@ -14,6 +14,7 @@ type ClerkUser = {
 @Injectable({ providedIn: "root" })
 export class AuthService {
   private clerk: Clerk | null = null;
+  private loadPromise: Promise<void> | null = null;
   private readonly _isReady = signal(false);
   private readonly _user = signal<ClerkUser | null>(null);
 
@@ -38,7 +39,8 @@ export class AuthService {
 
     try {
       this.clerk = new Clerk(environment.clerkPublishableKey);
-      await this.clerk.load();
+      this.loadPromise = this.clerk.load();
+      await this.loadPromise;
       this.syncUser();
 
       // Listen for session changes
@@ -52,35 +54,62 @@ export class AuthService {
     }
   }
 
+  /** Wait for Clerk to be fully loaded (including UI components) before proceeding. */
+  private async waitForReady(): Promise<Clerk | null> {
+    if (this.loadPromise) {
+      await this.loadPromise;
+    }
+    return this._isReady() ? this.clerk : null;
+  }
+
   async openSignIn() {
-    if (!this.clerk) {
+    const clerk = await this.waitForReady();
+    if (!clerk) {
       return;
     }
 
-    this.clerk.openSignIn({});
+    try {
+      clerk.openSignIn({});
+    } catch (error) {
+      console.warn("Clerk openSignIn failed, falling back to redirect:", error);
+      clerk.redirectToSignIn();
+    }
   }
 
   async openSignUp() {
-    if (!this.clerk) {
+    const clerk = await this.waitForReady();
+    if (!clerk) {
       return;
     }
 
-    this.clerk.openSignUp({});
+    try {
+      clerk.openSignUp({});
+    } catch (error) {
+      console.warn("Clerk openSignUp failed, falling back to redirect:", error);
+      clerk.redirectToSignUp();
+    }
   }
 
   async openUserProfile() {
-    if (!this.clerk) {
+    const clerk = await this.waitForReady();
+    if (!clerk) {
       return;
     }
-    this.clerk.openUserProfile();
+
+    try {
+      clerk.openUserProfile();
+    } catch (error) {
+      console.warn("Clerk openUserProfile failed:", error);
+    }
   }
 
   async signOut() {
-    if (!this.clerk) {
+    const clerk = await this.waitForReady();
+    if (!clerk) {
       return;
     }
 
-    await this.clerk.signOut();
+    await clerk.signOut();
     this._user.set(null);
   }
 
