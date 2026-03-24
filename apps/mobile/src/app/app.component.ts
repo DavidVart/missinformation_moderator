@@ -111,7 +111,7 @@ export class AppComponent implements OnDestroy {
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
   protected readonly showCorrectionOverlay = computed(
-    () => this.activeTab() === "live" && this.isCorrectionOpen() && !!this.latestIntervention()
+    () => (this.activeTab() === "live" || this.activeTab() === "insights") && this.isCorrectionOpen() && !!this.latestIntervention()
   );
   protected readonly transcriptFeed = computed(() => this.transcriptSegments().slice(-8));
   protected readonly archiveFeed = computed(() => this.interventions().slice(0, 8));
@@ -337,6 +337,14 @@ export class AppComponent implements OnDestroy {
         this.interventions.update((messages) => [message, ...messages].slice(0, 8));
         this.statusMessage.set("Correction ready");
         this.isCorrectionOpen.set(true);
+
+        // Auto-dismiss after 12 seconds so the overlay doesn't block forever
+        setTimeout(() => {
+          if (this.latestIntervention()?.messageId === message.messageId) {
+            this.isCorrectionOpen.set(false);
+          }
+        }, 12_000);
+
         void this.refreshHistory();
       })
     );
@@ -366,7 +374,7 @@ export class AppComponent implements OnDestroy {
 
   protected selectTab(tab: AppTab) {
     this.activeTab.set(tab);
-    if (tab !== "live") {
+    if (tab !== "live" && tab !== "insights") {
       this.isCorrectionOpen.set(false);
     }
   }
