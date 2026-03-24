@@ -10,7 +10,8 @@ import {
 import {
   claimAssessmentSchema,
   parseStreamPayload,
-  transcriptSegmentSchema
+  transcriptSegmentSchema,
+  type SourceCitation
 } from "@project-veritas/contracts";
 import { Sentry, createHttpLogger, createLogger, initSentry } from "@project-veritas/observability";
 import cors from "cors";
@@ -183,7 +184,7 @@ async function bootstrap() {
     async (_id, assessment) => {
       const verificationStartedAtMs = Date.now();
 
-      let citations;
+      let citations: SourceCitation[];
       try {
         citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY);
       } catch (error) {
