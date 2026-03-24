@@ -200,6 +200,13 @@
               </p>
             </div>
 
+            @if (isProcessingFinal()) {
+              <div class="processing-banner">
+                <ion-spinner name="crescent"></ion-spinner>
+                <span>Processing final claims — corrections may still arrive…</span>
+              </div>
+            }
+
             <div class="insight-grid">
               <article class="snapshot-card">
                 <div>

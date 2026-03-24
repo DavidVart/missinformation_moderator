@@ -492,9 +492,12 @@ export class AppComponent implements OnDestroy {
     }
   }
 
+  protected readonly isProcessingFinal = signal(false);
+
   private async stopMonitoring() {
     this.isBusy.set(true);
-    this.statusMessage.set("Stopping session");
+    this.isMonitoring.set(false);
+    this.statusMessage.set("Stopping capture");
 
     try {
       await this.audioCaptureService.stop();
@@ -502,11 +505,35 @@ export class AppComponent implements OnDestroy {
 
       if (currentSessionId) {
         await this.socketService.stopSession(currentSessionId);
+
+        // Wait for the pipeline to finish processing remaining claims.
+        // Pipeline latency: transcription ~3s + detection ~2s + citations ~3s + verification ~3s ≈ 12s
+        this.isProcessingFinal.set(true);
+        this.statusMessage.set("Processing final claims…");
+        this.activeTab.set("insights");
+
+        const interventionCountBefore = this.interventions().length;
+        const maxWaitMs = 18_000;
+        const pollIntervalMs = 2_000;
+        const startedAt = Date.now();
+
+        // Poll: wait up to 18s, stop early if a new intervention arrives
+        while (Date.now() - startedAt < maxWaitMs) {
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+          await this.refreshHistory();
+
+          // If we received new interventions, wait one more cycle then break
+          if (this.interventions().length > interventionCountBefore) {
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+            await this.refreshHistory();
+            break;
+          }
+        }
+
+        this.isProcessingFinal.set(false);
       }
 
-      this.isMonitoring.set(false);
       this.statusMessage.set("Session archived");
-      this.activeTab.set("insights");
     } finally {
       this.sessionId.set(null);
       this.sessionStartedAtMs.set(null);
