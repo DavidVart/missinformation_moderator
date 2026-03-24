@@ -12,7 +12,7 @@ import {
   parseStreamPayload,
   transcriptSegmentSchema
 } from "@project-veritas/contracts";
-import { createHttpLogger, createLogger } from "@project-veritas/observability";
+import { Sentry, createHttpLogger, createLogger, initSentry } from "@project-veritas/observability";
 import cors from "cors";
 import express from "express";
 import { v4 as uuidv4 } from "uuid";
@@ -36,10 +36,24 @@ const env = createEnv({
   TAVILY_API_KEY: z.string().optional()
 });
 
+initSentry("reasoning-service");
+
 const logger = createLogger("reasoning-service", env.LOG_LEVEL);
 const app = express();
 const transcriptWindowTtlSeconds = 60 * 10;
 const dedupeTtlSeconds = 60 * 5;
+
+const isRealMode = !!env.OPENAI_API_KEY && !!env.TAVILY_API_KEY;
+if (isRealMode) {
+  logger.info("Reasoning engine: REAL mode (OpenAI + Tavily)");
+} else {
+  logger.warn({
+    hasOpenAiKey: !!env.OPENAI_API_KEY,
+    hasTavilyKey: !!env.TAVILY_API_KEY
+  }, "Reasoning engine: MOCK mode — API keys missing, fact-checking disabled");
+  Sentry.captureMessage("Reasoning service started in MOCK mode — API keys missing", "warning");
+}
+
 const reasoningEngine = createReasoningEngine({
   openAiApiKey: env.OPENAI_API_KEY,
   openAiModel: env.OPENAI_MODEL,
@@ -52,7 +66,8 @@ app.use(createHttpLogger("reasoning-service", env.LOG_LEVEL));
 app.get("/health", (_request, response) => {
   response.json({
     status: "ok",
-    service: "reasoning"
+    service: "reasoning",
+    mode: isRealMode ? "real" : "mock"
   });
 });
 
@@ -112,10 +127,23 @@ async function bootstrap() {
 
       lastAssessedSignature.set(segment.sessionId, windowSignature);
       const assessmentStartedAtMs = Date.now();
-      const assessment = await reasoningEngine.assessWindow(segment.sessionId, rollingWindow);
+
+      let assessment;
+      try {
+        assessment = await reasoningEngine.assessWindow(segment.sessionId, rollingWindow);
+      } catch (error) {
+        logger.error({ err: error, sessionId: segment.sessionId, seq: segment.seq }, "Claim detection failed");
+        Sentry.captureException(error, {
+          tags: { phase: "detection", sessionId: segment.sessionId },
+          extra: { windowSignature, segmentText: segment.text }
+        });
+        return;
+      }
+
       const assessmentDurationMs = Date.now() - assessmentStartedAtMs;
 
       if (!assessment) {
+        logger.debug({ sessionId: segment.sessionId, seq: segment.seq, assessmentDurationMs }, "No verifiable claim in window");
         return;
       }
 
@@ -154,25 +182,50 @@ async function bootstrap() {
     (value) => parseStreamPayload(value, claimAssessmentSchema),
     async (_id, assessment) => {
       const verificationStartedAtMs = Date.now();
-      const citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY);
-      const verification = await reasoningEngine.verifyClaim(assessment, citations);
+
+      let citations;
+      try {
+        citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY);
+      } catch (error) {
+        logger.error({ err: error, claimText: assessment.claimText }, "Tavily citation fetch failed");
+        Sentry.captureException(error, {
+          tags: { phase: "citation", sessionId: assessment.sessionId },
+          extra: { query: assessment.query, claimText: assessment.claimText }
+        });
+        citations = [];
+      }
+
+      let verification;
+      try {
+        verification = await reasoningEngine.verifyClaim(assessment, citations);
+      } catch (error) {
+        logger.error({ err: error, claimText: assessment.claimText }, "Claim verification failed");
+        Sentry.captureException(error, {
+          tags: { phase: "verification", sessionId: assessment.sessionId },
+          extra: { claimText: assessment.claimText, citationCount: citations.length }
+        });
+        return;
+      }
+
       await xAddJson(redis, STREAM_NAMES.verdictsCompleted, verification);
       logger.info({
         sessionId: assessment.sessionId,
         claimText: assessment.claimText,
         verdict: verification.verdict,
         confidence: verification.confidence,
+        citationCount: citations.length,
         verificationDurationMs: Date.now() - verificationStartedAtMs
       }, "Completed claim verification");
     }
   );
 
   app.listen(env.PORT, () => {
-    logger.info({ port: env.PORT }, "Reasoning service listening");
+    logger.info({ port: env.PORT, mode: isRealMode ? "real" : "mock" }, "Reasoning service listening");
   });
 }
 
 bootstrap().catch((error) => {
   logger.error({ err: error }, "Reasoning service failed to start");
+  Sentry.captureException(error);
   process.exit(1);
 });
