@@ -20,7 +20,7 @@ import {
   socketAudioChunkPayloadSchema,
   transcriptSegmentSchema
 } from "@project-veritas/contracts";
-import { createHttpLogger, createLogger } from "@project-veritas/observability";
+import { Sentry, createHttpLogger, createLogger, initSentry } from "@project-veritas/observability";
 import cors from "cors";
 import express from "express";
 import { Server } from "socket.io";
@@ -41,6 +41,7 @@ const env = createEnv({
   INGESTION_MOCK_MODE: z.coerce.boolean().default(false)
 });
 
+initSentry("ingestion-service");
 const logger = createLogger("ingestion-service", env.LOG_LEVEL);
 const app = express();
 const server = createServer(app);
@@ -268,7 +269,10 @@ async function bootstrap() {
           payload
         );
 
-        await redis.expire(sessionSocketKey(payload.sessionId), env.SESSION_TTL_SECONDS);
+        // Update socket mapping on every chunk — handles socket reconnections
+        await redis.set(sessionSocketKey(payload.sessionId), socket.id, {
+          EX: env.SESSION_TTL_SECONDS
+        });
         await redis.expire(sessionMetaKey(payload.sessionId), env.SESSION_TTL_SECONDS);
         await xAddJson(redis, STREAM_NAMES.audioChunks, envelope);
 
@@ -316,7 +320,8 @@ async function bootstrap() {
 
         await xAddJson(redis, STREAM_NAMES.sessions, sessionEvent);
         await redis.del(sessionMetaKey(payload.sessionId));
-        await redis.del(sessionSocketKey(payload.sessionId));
+        // Keep socket mapping alive for 60s so late-arriving interventions still reach the client
+        await redis.expire(sessionSocketKey(payload.sessionId), 60);
 
         callback?.({
           ok: true
@@ -359,6 +364,21 @@ async function bootstrap() {
       const socketId = await redis.get(sessionSocketKey(payload.sessionId));
       if (socketId) {
         io.to(socketId).emit("intervention:created", payload);
+        logger.info({
+          sessionId: payload.sessionId,
+          socketId,
+          verdict: payload.verdict
+        }, "Forwarded intervention to client");
+      } else {
+        logger.warn({
+          sessionId: payload.sessionId,
+          verdict: payload.verdict
+        }, "No active socket for session — intervention dropped");
+        Sentry.captureMessage("Intervention dropped: no active socket for session", {
+          level: "warning",
+          tags: { sessionId: payload.sessionId },
+          extra: { verdict: payload.verdict, claimText: payload.claimText }
+        });
       }
     }
   );
@@ -370,5 +390,6 @@ async function bootstrap() {
 
 bootstrap().catch((error) => {
   logger.error({ err: error }, "Ingestion service failed to start");
+  Sentry.captureException(error);
   process.exit(1);
 });
