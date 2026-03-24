@@ -151,6 +151,8 @@ services:
         sync: false
       - key: WHISPER_MODEL
         value: base
+      - key: OPENAI_API_KEY
+        sync: false
       - key: SENTRY_DSN
         sync: false
 

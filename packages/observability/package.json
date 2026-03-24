@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@sentry/node": "^10.45.0",
     "@types/express": "^5.0.0",
     "express": "^4.21.2",
     "pino": "^9.6.0",

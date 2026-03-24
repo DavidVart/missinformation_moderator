@@ -1,5 +1,6 @@
 import type { AudioChunkEnvelope } from "@project-veritas/contracts";
 import { transcriptSegmentSchema } from "@project-veritas/contracts";
+import { Sentry } from "@project-veritas/observability";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 
@@ -79,6 +80,86 @@ export function stripOverlappingPrefix(previousTranscript: string | undefined, c
   }
 
   return trimmedCurrentTranscript;
+}
+
+/**
+ * Build a WAV file buffer from raw PCM16 mono audio data.
+ */
+function buildWavBuffer(pcm16Bytes: Uint8Array, sampleRate: number): Buffer {
+  const header = Buffer.alloc(44);
+  const dataSize = pcm16Bytes.byteLength;
+  const fileSize = 36 + dataSize;
+
+  // RIFF header
+  header.write("RIFF", 0);
+  header.writeUInt32LE(fileSize, 4);
+  header.write("WAVE", 8);
+
+  // fmt chunk
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16); // chunk size
+  header.writeUInt16LE(1, 20); // PCM format
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28); // byte rate (sampleRate * channels * bytesPerSample)
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+
+  // data chunk
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcm16Bytes]);
+}
+
+/**
+ * Transcribe audio using OpenAI's Whisper API.
+ * Converts PCM16 Base64 audio to WAV and sends to /v1/audio/transcriptions.
+ */
+export async function transcribeWithOpenAI(
+  apiKey: string,
+  chunk: AudioChunkEnvelope,
+  options?: { initialPrompt?: string }
+) {
+  const pcm16Bytes = new Uint8Array(Buffer.from(chunk.pcm16MonoBase64, "base64"));
+  const wavBuffer = buildWavBuffer(pcm16Bytes, chunk.sampleRate);
+
+  const formData = new FormData();
+  formData.append("file", new Blob([wavBuffer], { type: "audio/wav" }), "audio.wav");
+  formData.append("model", "whisper-1");
+  formData.append("response_format", "verbose_json");
+
+  if (options?.initialPrompt) {
+    formData.append("prompt", options.initialPrompt);
+  }
+
+  if (chunk.language) {
+    formData.append("language", chunk.language);
+  }
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "unknown");
+    throw new Error(`OpenAI Whisper API failed (${response.status}): ${errorBody}`);
+  }
+
+  const payload = await response.json();
+  // verbose_json returns { text, language, duration, segments[] }
+  // segments have avg_logprob which we can map to confidence
+  const avgLogProb = payload.segments?.[0]?.avg_logprob;
+  const confidence = avgLogProb != null ? Math.max(0, Math.min(1, 1 + avgLogProb)) : undefined;
+
+  return whisperResponseSchema.parse({
+    text: payload.text ?? "",
+    confidence
+  });
 }
 
 export async function transcribeWithWorker(
