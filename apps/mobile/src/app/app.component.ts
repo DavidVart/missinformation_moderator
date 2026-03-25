@@ -17,19 +17,44 @@ import {
   personOutline,
   pulseOutline,
   personCircleOutline,
+  podiumOutline,
   radioButtonOnOutline,
+  ribbonOutline,
+  schoolOutline,
   settingsOutline,
   shieldCheckmarkOutline,
   sparklesOutline,
   stopCircleOutline,
   timeOutline,
+  trendingUpOutline,
+  trophyOutline,
   volumeHighOutline,
-  warningOutline
+  warningOutline,
+  chatbubblesOutline,
+  eyeOffOutline,
+  statsChartOutline,
+  earOutline,
+  calendarOutline,
+  arrowBackOutline,
+  arrowForwardOutline,
+  chevronForwardOutline,
+  gridOutline,
+  newspaperOutline
 } from "ionicons/icons";
 import { Subscription } from "rxjs";
 
-import type { InterventionMessage, TranscriptSegment } from "@project-veritas/contracts";
+import type {
+  CohortLeaderboardEntry,
+  InterventionMessage,
+  LeaderboardEntry,
+  MonthlyReflection,
+  SessionMode,
+  TopicMisinformationPoint,
+  TopicSummary,
+  TranscriptSegment
+} from "@project-veritas/contracts";
 
+import { AnalyticsApiService } from "./core/analytics/analytics-api.service";
 import { PosthogService } from "./core/analytics/posthog.service";
 import { AudioCaptureService } from "./core/audio/audio-capture.service";
 import { AuthService } from "./core/auth/auth.service";
@@ -37,7 +62,22 @@ import { HistoryApiService } from "./core/history/history-api.service";
 import { MonitoringSocketService } from "./core/monitoring/monitoring-socket.service";
 import { SpeechService } from "./core/speech/speech.service";
 
-type AppTab = "home" | "live" | "insights" | "archive" | "profile";
+type AppTab = "home" | "live" | "insights" | "rankings" | "profile";
+
+type RankingsSubTab = "global" | "schools" | "majors";
+
+type SessionModeOption = {
+  mode: SessionMode;
+  icon: string;
+  title: string;
+  description: string;
+};
+
+type TopicInfo = {
+  slug: string;
+  label: string;
+  icon: string;
+};
 
 type FeatureCard = {
   icon: string;
@@ -88,6 +128,7 @@ export class AppComponent implements OnDestroy {
   private readonly socketService = inject(MonitoringSocketService);
   private readonly audioCaptureService = inject(AudioCaptureService);
   private readonly historyApi = inject(HistoryApiService);
+  private readonly analyticsApi = inject(AnalyticsApiService);
   private readonly speechService = inject(SpeechService);
   private readonly posthog = inject(PosthogService);
   protected readonly auth = inject(AuthService);
@@ -107,6 +148,46 @@ export class AppComponent implements OnDestroy {
   protected readonly ambientTick = signal(0);
   protected readonly uiNowMs = signal(Date.now());
   protected readonly sessionStartedAtMs = signal<number | null>(null);
+
+  // ───────────────── Session mode ─────────────────
+  protected readonly selectedMode = signal<SessionMode>("debate_live");
+  protected readonly sessionModes: SessionModeOption[] = [
+    { mode: "debate_live", icon: "chatbubbles-outline", title: "Debate Live", description: "Real-time corrections as you speak" },
+    { mode: "conversation_score", icon: "stats-chart-outline", title: "Talk + Score", description: "Score accuracy after session ends" },
+    { mode: "silent_review", icon: "eye-off-outline", title: "Silent Review", description: "No interruptions, review later" },
+    { mode: "background_capture", icon: "ear-outline", title: "Background", description: "Capture ambient conversation" }
+  ];
+
+  // ───────────────── Rankings ─────────────────
+  protected readonly rankingsSubTab = signal<RankingsSubTab>("global");
+  protected readonly globalLeaderboard = signal<LeaderboardEntry[]>([]);
+  protected readonly schoolLeaderboard = signal<CohortLeaderboardEntry[]>([]);
+  protected readonly majorLeaderboard = signal<CohortLeaderboardEntry[]>([]);
+  protected readonly rankingsLoading = signal(false);
+
+  // ───────────────── Monthly reflections ─────────────────
+  protected readonly currentReflectionMonth = signal(this.getCurrentMonth());
+  protected readonly monthlyReflection = signal<MonthlyReflection | null>(null);
+  protected readonly reflectionLoading = signal(false);
+
+  // ───────────────── Topic breakdown ─────────────────
+  protected readonly sessionTopics = signal<TopicSummary[]>([]);
+  protected readonly selectedTopicSlug = signal<string | null>(null);
+  protected readonly topicMisinformation = signal<TopicMisinformationPoint[]>([]);
+  protected readonly topicsLoading = signal(false);
+
+  protected readonly allTopics: TopicInfo[] = [
+    { slug: "politics", label: "Politics", icon: "podium-outline" },
+    { slug: "economics", label: "Economics", icon: "trending-up-outline" },
+    { slug: "health", label: "Health", icon: "pulse-outline" },
+    { slug: "science", label: "Science", icon: "flash-outline" },
+    { slug: "technology", label: "Technology", icon: "grid-outline" },
+    { slug: "education", label: "Education", icon: "school-outline" },
+    { slug: "law", label: "Law", icon: "shield-checkmark-outline" },
+    { slug: "culture", label: "Culture", icon: "sparkles-outline" },
+    { slug: "sports", label: "Sports", icon: "trophy-outline" },
+    { slug: "general", label: "General", icon: "newspaper-outline" }
+  ];
 
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
@@ -259,6 +340,25 @@ export class AppComponent implements OnDestroy {
     return `${Math.round(intervention.confidence * 100)}% confidence`;
   });
 
+  protected readonly reflectionScoreLabel = computed(() => {
+    const reflection = this.monthlyReflection();
+    if (!reflection) return "—";
+    return `${Math.round(reflection.averageAccuracyScore)}%`;
+  });
+  protected readonly reflectionTrendLabel = computed(() => {
+    const reflection = this.monthlyReflection();
+    if (!reflection) return "";
+    const trend = reflection.scoreTrend;
+    if (trend > 0) return `+${trend.toFixed(1)} from last month`;
+    if (trend < 0) return `${trend.toFixed(1)} from last month`;
+    return "No change from last month";
+  });
+  protected readonly reflectionMonthLabel = computed(() => {
+    const [year, month] = this.currentReflectionMonth().split("-");
+    const date = new Date(Number(year), Number(month) - 1);
+    return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  });
+
   protected readonly featureCards: FeatureCard[] = [
     {
       icon: "shield-checkmark-outline",
@@ -295,23 +395,38 @@ export class AppComponent implements OnDestroy {
     addIcons({
       analyticsOutline,
       archiveOutline,
+      arrowBackOutline,
+      arrowForwardOutline,
       barChartOutline,
+      calendarOutline,
+      chatbubblesOutline,
       checkmarkCircleOutline,
+      chevronForwardOutline,
       closeOutline,
       documentTextOutline,
+      earOutline,
+      eyeOffOutline,
       flashOutline,
+      gridOutline,
       homeOutline,
       logOutOutline,
       micOutline,
+      newspaperOutline,
       personOutline,
+      podiumOutline,
       pulseOutline,
       personCircleOutline,
       radioButtonOnOutline,
+      ribbonOutline,
+      schoolOutline,
       settingsOutline,
       shieldCheckmarkOutline,
       sparklesOutline,
+      statsChartOutline,
       stopCircleOutline,
       timeOutline,
+      trendingUpOutline,
+      trophyOutline,
       volumeHighOutline,
       warningOutline
     });
@@ -376,6 +491,13 @@ export class AppComponent implements OnDestroy {
     this.activeTab.set(tab);
     if (tab !== "live" && tab !== "insights") {
       this.isCorrectionOpen.set(false);
+    }
+    if (tab === "rankings") {
+      void this.loadRankings();
+    }
+    if (tab === "insights") {
+      void this.loadMonthlyReflection();
+      void this.loadSessionTopics();
     }
   }
 
@@ -465,6 +587,103 @@ export class AppComponent implements OnDestroy {
     void this.auth.signOut();
   }
 
+  // ───────────────────── Session Modes ─────────────────────
+
+  protected selectSessionMode(mode: SessionMode) {
+    this.selectedMode.set(mode);
+    this.posthog.capture("session_mode_selected", { mode });
+  }
+
+  // ───────────────────── Rankings ─────────────────────
+
+  protected selectRankingsSubTab(sub: RankingsSubTab) {
+    this.rankingsSubTab.set(sub);
+    void this.loadRankings(sub);
+  }
+
+  protected async loadRankings(sub?: RankingsSubTab) {
+    const tab = sub ?? this.rankingsSubTab();
+    this.rankingsLoading.set(true);
+    try {
+      if (tab === "global") {
+        const data = await this.analyticsApi.getGlobalLeaderboard();
+        this.globalLeaderboard.set(data.entries);
+      } else if (tab === "schools") {
+        const data = await this.analyticsApi.getSchoolLeaderboard();
+        this.schoolLeaderboard.set(data.entries);
+      } else if (tab === "majors") {
+        const data = await this.analyticsApi.getMajorLeaderboard();
+        this.majorLeaderboard.set(data.entries);
+      }
+    } catch {
+      // Silently fail — empty state will show
+    } finally {
+      this.rankingsLoading.set(false);
+    }
+  }
+
+  // ───────────────────── Monthly Reflections ─────────────────────
+
+  protected async loadMonthlyReflection() {
+    this.reflectionLoading.set(true);
+    try {
+      const reflection = await this.analyticsApi.getMonthlyReflection(this.currentReflectionMonth());
+      this.monthlyReflection.set(reflection);
+    } catch {
+      this.monthlyReflection.set(null);
+    } finally {
+      this.reflectionLoading.set(false);
+    }
+  }
+
+  protected navigateReflectionMonth(delta: number) {
+    const [year, month] = this.currentReflectionMonth().split("-").map(Number);
+    const date = new Date(year!, month! - 1 + delta);
+    const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    this.currentReflectionMonth.set(newMonth);
+    void this.loadMonthlyReflection();
+  }
+
+  private getCurrentMonth(): string {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  // ───────────────────── Topic Breakdown ─────────────────────
+
+  protected async loadSessionTopics() {
+    const currentSessionId = this.sessionId();
+    if (!currentSessionId) return;
+    this.topicsLoading.set(true);
+    try {
+      const topics = await this.analyticsApi.getSessionTopics(currentSessionId);
+      this.sessionTopics.set(topics);
+    } catch {
+      this.sessionTopics.set([]);
+    } finally {
+      this.topicsLoading.set(false);
+    }
+  }
+
+  protected async selectTopic(slug: string) {
+    this.selectedTopicSlug.set(slug);
+    try {
+      const points = await this.analyticsApi.getTopicMisinformation(slug);
+      this.topicMisinformation.set(points);
+    } catch {
+      this.topicMisinformation.set([]);
+    }
+  }
+
+  protected clearSelectedTopic() {
+    this.selectedTopicSlug.set(null);
+    this.topicMisinformation.set([]);
+  }
+
+  protected topicLabel(slug: string): string {
+    return this.allTopics.find((t) => t.slug === slug)?.label ?? slug;
+  }
+
   // ───────────────────── Monitoring ─────────────────────
 
   private async startMonitoring() {
@@ -541,6 +760,8 @@ export class AppComponent implements OnDestroy {
         this.isProcessingFinal.set(false);
       }
 
+      void this.loadSessionTopics();
+      void this.loadMonthlyReflection();
       this.statusMessage.set("Session archived");
     } finally {
       this.sessionId.set(null);

@@ -91,6 +91,28 @@
         <!-- ═══════════════════════════════════════════ LIVE TAB ═══════════════════════════════════════════ -->
         @if (activeTab() === 'live') {
           <section class="session-view">
+            <!-- Session Mode Selector (only when not monitoring) -->
+            @if (!isMonitoring() && !hasSessionData()) {
+              <div class="mode-selector">
+                <div class="section-heading">
+                  <h2>Session Mode</h2>
+                </div>
+                <div class="mode-grid">
+                  @for (opt of sessionModes; track opt.mode) {
+                    <button
+                      class="mode-card"
+                      [class.is-selected]="selectedMode() === opt.mode"
+                      type="button"
+                      (click)="selectSessionMode(opt.mode)">
+                      <ion-icon [name]="opt.icon"></ion-icon>
+                      <strong>{{ opt.title }}</strong>
+                      <span>{{ opt.description }}</span>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+
             <div class="session-status">
               <span class="live-indicator" [class.is-live]="isMonitoring()"></span>
               <span>{{ isMonitoring() ? 'Listening...' : statusMessage() }}</span>
@@ -306,40 +328,293 @@
                 </div>
               }
             </section>
+
+            <!-- ─── Topic Breakdown ─── -->
+            <section class="stack-panel">
+              <div class="section-heading">
+                <h2>Topic Breakdown</h2>
+                <span>{{ sessionTopics().length }}</span>
+              </div>
+
+              @if (topicsLoading()) {
+                <div class="empty-panel empty-panel--waiting">
+                  <ion-spinner name="crescent"></ion-spinner>
+                  Loading topic analysis…
+                </div>
+              } @else if (sessionTopics().length > 0) {
+                <div class="topic-grid">
+                  @for (topic of sessionTopics(); track topic.topicSlug) {
+                    <button
+                      class="topic-chip"
+                      [class.is-active]="selectedTopicSlug() === topic.topicSlug"
+                      type="button"
+                      (click)="selectTopic(topic.topicSlug)">
+                      <strong>{{ topicLabel(topic.topicSlug) }}</strong>
+                      <div class="topic-chip__stats">
+                        <span>{{ topic.claimCount }} claims</span>
+                        <span class="topic-chip__accuracy">{{ topic.accuracyScore }}%</span>
+                      </div>
+                    </button>
+                  }
+                </div>
+
+                @if (selectedTopicSlug()) {
+                  <div class="topic-detail">
+                    <div class="topic-detail__header">
+                      <h3>{{ topicLabel(selectedTopicSlug()!) }} — Misinformation</h3>
+                      <button class="text-link-button" type="button" (click)="clearSelectedTopic()">Close</button>
+                    </div>
+                    @if (topicMisinformation().length > 0) {
+                      <div class="registry-list">
+                        @for (point of topicMisinformation(); track point.claimText) {
+                          <article class="registry-card">
+                            <div class="registry-meta">
+                              <span>{{ point.verdict | uppercase }}</span>
+                              <ion-icon name="warning-outline"></ion-icon>
+                            </div>
+                            <div class="registry-block">
+                              <p class="registry-label">Claim</p>
+                              <p class="registry-claim">{{ point.claimText }}</p>
+                            </div>
+                            <div class="registry-correction">
+                              <div>
+                                <p class="registry-label">Correction</p>
+                                <p>{{ point.correction }}</p>
+                              </div>
+                            </div>
+                          </article>
+                        }
+                      </div>
+                    } @else {
+                      <div class="empty-panel">No misinformation recorded for this topic yet.</div>
+                    }
+                  </div>
+                }
+              } @else {
+                <div class="empty-panel">
+                  Topics will appear after completing a session with fact-checked claims.
+                </div>
+              }
+            </section>
+
+            <!-- ─── Monthly Reflection ─── -->
+            <section class="stack-panel">
+              <div class="section-heading">
+                <h2>Monthly Reflection</h2>
+              </div>
+
+              <div class="reflection-nav">
+                <button class="icon-button" type="button" (click)="navigateReflectionMonth(-1)">
+                  <ion-icon name="arrow-back-outline"></ion-icon>
+                </button>
+                <span class="reflection-month-label">{{ reflectionMonthLabel() }}</span>
+                <button class="icon-button" type="button" (click)="navigateReflectionMonth(1)">
+                  <ion-icon name="arrow-forward-outline"></ion-icon>
+                </button>
+              </div>
+
+              @if (reflectionLoading()) {
+                <div class="empty-panel empty-panel--waiting">
+                  <ion-spinner name="crescent"></ion-spinner>
+                  Loading reflection…
+                </div>
+              } @else if (monthlyReflection()) {
+                <article class="reflection-card">
+                  <div class="reflection-score-row">
+                    <div class="reflection-big-score">
+                      <span class="reflection-big-number">{{ reflectionScoreLabel() }}</span>
+                      <span class="reflection-trend" [class.is-positive]="monthlyReflection()!.scoreTrend > 0" [class.is-negative]="monthlyReflection()!.scoreTrend < 0">
+                        {{ reflectionTrendLabel() }}
+                      </span>
+                    </div>
+                    <div class="reflection-summary">
+                      <div class="glance-pill">
+                        <span>Sessions</span>
+                        <strong>{{ monthlyReflection()!.sessionCount }}</strong>
+                      </div>
+                      <div class="glance-pill">
+                        <span>Corrections</span>
+                        <strong>{{ monthlyReflection()!.correctionCount }}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  @if (monthlyReflection()!.topTopics.length > 0) {
+                    <div class="reflection-section">
+                      <p class="registry-label">Top Topics</p>
+                      <div class="topic-pills">
+                        @for (topic of monthlyReflection()!.topTopics; track topic.topicSlug) {
+                          <span class="eyebrow-pill">{{ topic.label }}</span>
+                        }
+                      </div>
+                    </div>
+                  }
+
+                  @if (monthlyReflection()!.repeatedWeakPoints.length > 0) {
+                    <div class="reflection-section">
+                      <p class="registry-label">Weak Points</p>
+                      <ul class="reflection-weak-list">
+                        @for (point of monthlyReflection()!.repeatedWeakPoints; track point) {
+                          <li>{{ point }}</li>
+                        }
+                      </ul>
+                    </div>
+                  }
+
+                  @if (monthlyReflection()!.recommendedTopics.length > 0) {
+                    <div class="reflection-section">
+                      <p class="registry-label">Recommended Focus</p>
+                      <div class="topic-pills">
+                        @for (slug of monthlyReflection()!.recommendedTopics; track slug) {
+                          <span class="eyebrow-pill">{{ topicLabel(slug) }}</span>
+                        }
+                      </div>
+                    </div>
+                  }
+                </article>
+              } @else {
+                <div class="empty-panel">
+                  No reflection data for this month. Complete sessions to generate your monthly performance summary.
+                </div>
+              }
+            </section>
           </section>
         }
 
-        <!-- ═══════════════════════════════════════════ ARCHIVE TAB ═══════════════════════════════════════════ -->
-        @if (activeTab() === 'archive') {
-          <section class="archive-view">
+        <!-- ═══════════════════════════════════════════ RANKINGS TAB ═══════════════════════════════════════════ -->
+        @if (activeTab() === 'rankings') {
+          <section class="rankings-view">
             <div class="view-header">
-              <h1>Archive</h1>
-              <p>Review the most recent interventions and claim corrections from your sessions.</p>
+              <h1>Rankings</h1>
+              <p>Global accuracy leaderboard powered by Real Talk sessions.</p>
             </div>
 
-            @if (archiveFeed().length > 0) {
-              <div class="archive-list">
-                @for (intervention of archiveFeed(); track intervention.messageId) {
-                  <article class="archive-card">
-                    <div class="archive-header">
-                      <div>
-                        <p class="archive-time">{{ intervention.issuedAt | date: 'mediumTime' }}</p>
-                        <h2>{{ intervention.claimText }}</h2>
-                      </div>
-                      <span class="archive-pill">{{ intervention.verdict }}</span>
-                    </div>
-                    <p class="archive-copy">{{ intervention.correction }}</p>
-                    <div class="archive-footer">
-                      <span>{{ intervention.sources.length }} linked sources</span>
-                      <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
-                    </div>
-                  </article>
-                }
+            <!-- Sub-tab pills -->
+            <div class="sub-tab-bar">
+              <button
+                class="sub-tab-pill"
+                [class.is-active]="rankingsSubTab() === 'global'"
+                type="button"
+                (click)="selectRankingsSubTab('global')">
+                <ion-icon name="trophy-outline"></ion-icon>
+                <span>Global</span>
+              </button>
+              <button
+                class="sub-tab-pill"
+                [class.is-active]="rankingsSubTab() === 'schools'"
+                type="button"
+                (click)="selectRankingsSubTab('schools')">
+                <ion-icon name="school-outline"></ion-icon>
+                <span>Schools</span>
+              </button>
+              <button
+                class="sub-tab-pill"
+                [class.is-active]="rankingsSubTab() === 'majors'"
+                type="button"
+                (click)="selectRankingsSubTab('majors')">
+                <ion-icon name="ribbon-outline"></ion-icon>
+                <span>Majors</span>
+              </button>
+            </div>
+
+            @if (rankingsLoading()) {
+              <div class="empty-panel empty-panel--waiting">
+                <ion-spinner name="crescent"></ion-spinner>
+                Loading leaderboard…
               </div>
             } @else {
-              <div class="empty-panel">
-                Nothing archived yet. Start a live session to build a correction history.
-              </div>
+              <!-- Global Leaderboard -->
+              @if (rankingsSubTab() === 'global') {
+                @if (globalLeaderboard().length > 0) {
+                  <div class="leaderboard-list">
+                    @for (entry of globalLeaderboard(); track entry.userId) {
+                      <article class="leaderboard-card" [class.is-podium]="entry.rank <= 3">
+                        <div class="leaderboard-rank">
+                          @if (entry.rank <= 3) {
+                            <ion-icon name="trophy-outline" [class]="'rank-' + entry.rank"></ion-icon>
+                          }
+                          <span>#{{ entry.rank }}</span>
+                        </div>
+                        <div class="leaderboard-info">
+                          <strong>{{ entry.displayName }}</strong>
+                          <span class="leaderboard-detail">
+                            {{ entry.sessionsCount }} sessions · {{ entry.correctionsCount }} corrections
+                          </span>
+                        </div>
+                        <div class="leaderboard-score">
+                          <strong>{{ entry.score | number:'1.0-0' }}%</strong>
+                        </div>
+                      </article>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-panel">
+                    No rankings yet. Be the first to complete a session and appear on the leaderboard.
+                  </div>
+                }
+              }
+
+              <!-- School Leaderboard -->
+              @if (rankingsSubTab() === 'schools') {
+                @if (schoolLeaderboard().length > 0) {
+                  <div class="leaderboard-list">
+                    @for (entry of schoolLeaderboard(); track entry.label) {
+                      <article class="leaderboard-card" [class.is-podium]="entry.rank <= 3">
+                        <div class="leaderboard-rank">
+                          @if (entry.rank <= 3) {
+                            <ion-icon name="school-outline" [class]="'rank-' + entry.rank"></ion-icon>
+                          }
+                          <span>#{{ entry.rank }}</span>
+                        </div>
+                        <div class="leaderboard-info">
+                          <strong>{{ entry.label }}</strong>
+                          <span class="leaderboard-detail">
+                            {{ entry.publicUserCount }} members · {{ entry.sessionsCount }} sessions
+                          </span>
+                        </div>
+                        <div class="leaderboard-score">
+                          <strong>{{ entry.score | number:'1.0-0' }}%</strong>
+                        </div>
+                      </article>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-panel">
+                    School rankings require at least 5 public users per institution. Set your school in Profile and make your profile public to participate.
+                  </div>
+                }
+              }
+
+              <!-- Major Leaderboard -->
+              @if (rankingsSubTab() === 'majors') {
+                @if (majorLeaderboard().length > 0) {
+                  <div class="leaderboard-list">
+                    @for (entry of majorLeaderboard(); track entry.label) {
+                      <article class="leaderboard-card" [class.is-podium]="entry.rank <= 3">
+                        <div class="leaderboard-rank">
+                          @if (entry.rank <= 3) {
+                            <ion-icon name="ribbon-outline" [class]="'rank-' + entry.rank"></ion-icon>
+                          }
+                          <span>#{{ entry.rank }}</span>
+                        </div>
+                        <div class="leaderboard-info">
+                          <strong>{{ entry.label }}</strong>
+                          <span class="leaderboard-detail">
+                            {{ entry.publicUserCount }} members · {{ entry.sessionsCount }} sessions
+                          </span>
+                        </div>
+                        <div class="leaderboard-score">
+                          <strong>{{ entry.score | number:'1.0-0' }}%</strong>
+                        </div>
+                      </article>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-panel">
+                    Major rankings require at least 5 public users per field. Set your major in Profile and make your profile public to participate.
+                  </div>
+                }
+              }
             }
           </section>
         }
@@ -515,9 +790,9 @@
         <ion-icon name="bar-chart-outline"></ion-icon>
         <span>Insights</span>
       </button>
-      <button class="nav-button" [class.is-active]="activeTab() === 'archive'" (click)="selectTab('archive')" type="button">
-        <ion-icon name="archive-outline"></ion-icon>
-        <span>Archive</span>
+      <button class="nav-button" [class.is-active]="activeTab() === 'rankings'" (click)="selectTab('rankings')" type="button">
+        <ion-icon name="trophy-outline"></ion-icon>
+        <span>Rankings</span>
       </button>
       <button class="nav-button" [class.is-active]="activeTab() === 'profile'" (click)="selectTab('profile')" type="button">
         <ion-icon name="person-outline"></ion-icon>

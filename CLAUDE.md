@@ -39,6 +39,19 @@ Every bug fix or feature that touches error-prone paths MUST include Sentry inst
 - Each service has `npm run typecheck` for type-only validation
 - Tests use Vitest: `npm test -w <workspace>`
 
+### UI Consistency (MANDATORY)
+All new screens and components MUST follow the existing design system in `app.component.scss`:
+- **Layout**: Flexbox column views (`display: flex; flex-direction: column; gap: 1.25rem`) inside `.screen-body` (max-width `32rem`, centered)
+- **Cards**: Use shared radius `1.35rem`, background `rgba(255,255,255,0.92)`, shadow `0 12px 36px rgba(0,51,69,0.08)`
+- **Typography**: Manrope 800 for headings (letter-spacing `-0.04em`), Inter for body text
+- **Colors**: Use CSS variables `--rt-primary`, `--rt-secondary`, `--rt-muted`, `--rt-text`, etc. — never hard-code colors outside the design tokens
+- **Section headers**: Use `.view-header` (h1 + description p) at top of each tab view
+- **Metric pills**: Use `.console-pill` / `.glance-pill` pattern (3-column grid, uppercase label + bold value)
+- **Buttons**: Use `.primary-cta`, `.secondary-cta`, `.text-link-button` classes — never create one-off button styles
+- **Empty states**: Use `.empty-panel` pattern with descriptive placeholder text
+- **Animations**: Keep transitions 160–320ms; use existing keyframes (`pulse`, `wavePulse`, `typingPulse`)
+- **No Shadow DOM**: Avoid `ion-content`; use plain flexbox inside `.app-scroll-area`
+
 ### Common Pitfalls
 - Ionic's `ion-content` uses Shadow DOM — avoid `position: fixed` inside it; use plain flexbox layouts instead
 - Clerk's `openSignIn()` requires UI components to be loaded first — always guard with `isReady` check or use `redirectToSignIn()` as fallback
