@@ -471,7 +471,7 @@ export async function createJsonConsumer<T>(
   consumerName: string,
   parser: (value: string) => T,
   onMessage: (id: string, payload: T) => Promise<void>,
-  blockMs = 5000
+  blockMs = 30000
 ) {
   await ensureConsumerGroup(client, streamName, groupName);
 
