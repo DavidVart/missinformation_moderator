@@ -367,9 +367,9 @@ async function searchTavily(query: string, apiKey: string): Promise<SourceCitati
     body: JSON.stringify({
       api_key: apiKey,
       query,
-      max_results: 5,
+      max_results: 3,
       include_answer: false,
-      search_depth: "advanced"
+      search_depth: "basic"
     })
   });
 
@@ -457,29 +457,17 @@ export async function fetchCitations(query: string, tavilyApiKey?: string) {
 
   const primaryResults = await searchTavily(query, tavilyApiKey);
 
-  if (countHighSignalCitations(primaryResults) >= 2) {
+  if (countHighSignalCitations(primaryResults) >= 1) {
     return curateCitations(primaryResults, query);
   }
 
-  const fallbackQueries = [
-    `${query} official source`,
-    `${query} (site:reuters.com OR site:apnews.com OR site:bbc.com OR site:britannica.com OR site:wikipedia.org)`
-  ];
-
-  const fallbackResults = await Promise.all(
-    fallbackQueries.map(async (fallbackQuery) => {
-      try {
-        return await searchTavily(fallbackQuery, tavilyApiKey);
-      } catch {
-        return [] satisfies SourceCitation[];
-      }
-    })
-  );
-
-  return curateCitations(
-    [...primaryResults, ...fallbackResults.flat()],
-    query
-  );
+  // Single fallback search instead of two parallel ones (saves 1 Tavily credit per claim)
+  try {
+    const fallbackResults = await searchTavily(`${query} official source`, tavilyApiKey);
+    return curateCitations([...primaryResults, ...fallbackResults], query);
+  } catch {
+    return curateCitations(primaryResults, query);
+  }
 }
 
 export function buildRollingWindow(segments: TranscriptSegment[]) {

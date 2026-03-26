@@ -4,7 +4,7 @@ import { BehaviorSubject, Subject } from "rxjs";
 import { buildChunkPayload, calculateChunkSampleCount, mergeFloat32Arrays } from "./audio-utils";
 
 const CHUNK_MS = 4000;
-const CHUNK_STEP_MS = 2000;
+const CHUNK_STEP_MS = 3000;
 const TARGET_SAMPLE_RATE = 16000;
 
 export type EncodedAudioChunk = {

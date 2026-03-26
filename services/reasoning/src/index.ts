@@ -113,11 +113,13 @@ async function bootstrap() {
     (value) => parseStreamPayload(value, transcriptSegmentSchema),
     async (_id, segment) => {
       const key = windowKey(segment.sessionId);
+      // Pipeline: push + trim + expire + read in fewer round-trips
       await redis.rPush(key, JSON.stringify(segment));
       await redis.lTrim(key, -3, -1);
-      await redis.expire(key, transcriptWindowTtlSeconds);
-
-      const rawSegments = await redis.lRange(key, 0, -1);
+      const [rawSegments] = await Promise.all([
+        redis.lRange(key, 0, -1),
+        redis.expire(key, transcriptWindowTtlSeconds)
+      ]);
       const segments = rawSegments.map((rawSegment) => transcriptSegmentSchema.parse(JSON.parse(rawSegment)));
       const rollingWindow = buildRollingWindow(segments);
       const windowSignature = buildWindowSignature(rollingWindow);

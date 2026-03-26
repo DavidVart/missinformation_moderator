@@ -480,7 +480,7 @@ export async function createJsonConsumer<T>(
       key: streamName,
       id: ">"
     }, {
-      COUNT: 10,
+      COUNT: 25,
       BLOCK: blockMs
     });
 
