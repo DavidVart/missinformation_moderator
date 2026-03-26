@@ -52,7 +52,7 @@ export class MonitoringSocketService {
 
     this.socket = io(socketUrl, {
       autoConnect: false,
-      transports: ["websocket"]
+      transports: ["polling", "websocket"]
     });
 
     this.socket.on("connect", () => {
