@@ -11,7 +11,6 @@ import {
   closeOutline,
   documentTextOutline,
   flashOutline,
-  homeOutline,
   logOutOutline,
   micOutline,
   personOutline,
@@ -62,9 +61,11 @@ import { HistoryApiService } from "./core/history/history-api.service";
 import { MonitoringSocketService } from "./core/monitoring/monitoring-socket.service";
 import { SpeechService } from "./core/speech/speech.service";
 
-type AppTab = "home" | "live" | "insights" | "rankings" | "profile";
+type AppTab = "live" | "insights" | "rankings" | "profile";
 
 type RankingsSubTab = "global" | "schools" | "majors";
+
+type InsightsSubTab = "session" | "topics" | "trends";
 
 type SessionModeOption = {
   mode: SessionMode;
@@ -77,13 +78,6 @@ type TopicInfo = {
   slug: string;
   label: string;
   icon: string;
-};
-
-type FeatureCard = {
-  icon: string;
-  title: string;
-  body: string;
-  tone: "soft" | "primary";
 };
 
 type StatusReadout = {
@@ -142,7 +136,7 @@ export class AppComponent implements OnDestroy {
   protected readonly statusMessage = signal("Ready to moderate");
   protected readonly micError = signal<string | null>(null);
   protected readonly transportStatus = signal<"connecting" | "connected" | "offline">("connecting");
-  protected readonly activeTab = signal<AppTab>("home");
+  protected readonly activeTab = signal<AppTab>("live");
   protected readonly isCorrectionOpen = signal(true);
   protected readonly activityLevel = signal(0);
   protected readonly ambientTick = signal(0);
@@ -164,6 +158,9 @@ export class AppComponent implements OnDestroy {
   protected readonly schoolLeaderboard = signal<CohortLeaderboardEntry[]>([]);
   protected readonly majorLeaderboard = signal<CohortLeaderboardEntry[]>([]);
   protected readonly rankingsLoading = signal(false);
+
+  // ───────────────── Insights sub-tabs ─────────────────
+  protected readonly insightsSubTab = signal<InsightsSubTab>("session");
 
   // ───────────────── Monthly reflections ─────────────────
   protected readonly currentReflectionMonth = signal(this.getCurrentMonth());
@@ -196,16 +193,6 @@ export class AppComponent implements OnDestroy {
   );
   protected readonly transcriptFeed = computed(() => this.transcriptSegments().slice(-8));
   protected readonly archiveFeed = computed(() => this.interventions().slice(0, 8));
-  protected readonly recentMoments = computed(() =>
-    this.transcriptSegments()
-      .slice(-3)
-      .map((segment, index) => ({
-        id: segment.segmentId,
-        title: `Transcript moment ${index + 1}`,
-        body: segment.text,
-        timestamp: segment.startedAt
-      }))
-  );
   protected readonly sessionMetrics = computed(() => ({
     duration: this.formatDurationLabel(),
     corrections: this.interventions().length,
@@ -233,21 +220,6 @@ export class AppComponent implements OnDestroy {
 
     return "Backend offline";
   });
-  protected readonly homeReadouts = computed<StatusReadout[]>(() => [
-    {
-      label: "Transport",
-      value: this.transportPillLabel(),
-      emphasis: this.transportStatus() === "connected"
-    },
-    {
-      label: "Window",
-      value: "4s rolling"
-    },
-    {
-      label: "Cadence",
-      value: "2s overlap"
-    }
-  ]);
   protected readonly sessionGlanceItems = computed<StatusReadout[]>(() => [
     {
       label: "Segments",
@@ -263,15 +235,6 @@ export class AppComponent implements OnDestroy {
       value: "4s / 2s"
     }
   ]);
-  protected readonly homeWaveBars = computed(() =>
-    buildMeterBars(
-      15,
-      this.ambientTick(),
-      this.transportStatus() === "connected" ? 0.42 : 0.26,
-      22,
-      148
-    )
-  );
   protected readonly sessionWaveBars = computed(() => {
     const baseIntensity = this.isMonitoring()
       ? clamp(0.34 + this.activityLevel() * 0.95, 0.34, 1)
@@ -359,27 +322,6 @@ export class AppComponent implements OnDestroy {
     return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   });
 
-  protected readonly featureCards: FeatureCard[] = [
-    {
-      icon: "shield-checkmark-outline",
-      title: "Integrity First",
-      body: "Advanced neural patterns detect factual inconsistencies in real-time conversations.",
-      tone: "soft"
-    },
-    {
-      icon: "sparkles-outline",
-      title: "Neutral Stance",
-      body: "Our algorithm maintains zero bias, focusing only on structural logic and verifiable facts.",
-      tone: "primary"
-    },
-    {
-      icon: "pulse-outline",
-      title: "Deep Listening",
-      body: "Sophisticated voice analysis and overlap-aware transcription preserve accountability.",
-      tone: "soft"
-    }
-  ];
-
   private readonly deviceId = this.ensureDeviceId();
   private readonly ambientTimer = globalThis.setInterval(() => {
     this.ambientTick.update((tick) => tick + 1);
@@ -408,7 +350,6 @@ export class AppComponent implements OnDestroy {
       eyeOffOutline,
       flashOutline,
       gridOutline,
-      homeOutline,
       logOutOutline,
       micOutline,
       newspaperOutline,
@@ -496,8 +437,19 @@ export class AppComponent implements OnDestroy {
       void this.loadRankings();
     }
     if (tab === "insights") {
+      this.insightsSubTab.set("session");
       void this.loadMonthlyReflection();
       void this.loadSessionTopics();
+    }
+  }
+
+  protected selectInsightsSubTab(sub: InsightsSubTab) {
+    this.insightsSubTab.set(sub);
+    if (sub === "topics") {
+      void this.loadSessionTopics();
+    }
+    if (sub === "trends") {
+      void this.loadMonthlyReflection();
     }
   }
 
@@ -557,12 +509,6 @@ export class AppComponent implements OnDestroy {
     }
 
     return "Ready";
-  }
-
-  protected goLiveAndStart() {
-    this.activeTab.set("live");
-    this.posthog.capture("session_start_clicked");
-    void this.startMonitoring();
   }
 
   // ───────────────────── Auth methods (Clerk) ─────────────────────
