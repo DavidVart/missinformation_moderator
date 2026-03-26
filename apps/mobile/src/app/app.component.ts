@@ -140,6 +140,7 @@ export class AppComponent implements OnDestroy {
   protected readonly transportStatus = signal<"connecting" | "connected" | "offline">("connecting");
   protected readonly activeTab = signal<AppTab>("live");
   protected readonly isCorrectionOpen = signal(true);
+  private correctionDismissTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly activityLevel = signal(0);
   protected readonly ambientTick = signal(0);
   protected readonly uiNowMs = signal(Date.now());
@@ -257,14 +258,17 @@ export class AppComponent implements OnDestroy {
 
     return buildMeterBars(9, this.ambientTick() * 1.4, baseIntensity, 20, 126);
   });
-  protected readonly densityBars = computed(() => {
-    const activityBoost = clamp(
-      0.24 + this.transcriptSegments().length * 0.03 + this.interventions().length * 0.12,
-      0.22,
-      0.92
-    );
-
-    return buildMeterBars(7, this.ambientTick() * 0.86, activityBoost, 20, 78);
+  protected readonly accuracyPercent = computed(() => {
+    const segments = this.transcriptSegments().length;
+    const corrections = this.interventions().length;
+    if (segments === 0) return 100;
+    const ratio = Math.max(0, segments - corrections) / segments;
+    return Math.round(ratio * 100);
+  });
+  protected readonly accuracyRingDash = computed(() => {
+    const circumference = 2 * Math.PI * 34; // r=34
+    const filled = (this.accuracyPercent() / 100) * circumference;
+    return `${filled} ${circumference}`;
   });
   protected readonly transcriptWaitingCopy = computed(() => {
     if (this.isMonitoring()) {
@@ -410,11 +414,15 @@ export class AppComponent implements OnDestroy {
         this.statusMessage.set("Correction ready");
         this.isCorrectionOpen.set(true);
 
+        // Clear any previous dismiss timer so a new correction resets the countdown
+        if (this.correctionDismissTimer) {
+          clearTimeout(this.correctionDismissTimer);
+        }
+
         // Auto-dismiss after 12 seconds so the overlay doesn't block forever
-        setTimeout(() => {
-          if (this.latestIntervention()?.messageId === message.messageId) {
-            this.isCorrectionOpen.set(false);
-          }
+        this.correctionDismissTimer = setTimeout(() => {
+          this.isCorrectionOpen.set(false);
+          this.correctionDismissTimer = null;
         }, 12_000);
 
         void this.refreshHistory();

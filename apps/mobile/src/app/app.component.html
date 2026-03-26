@@ -244,14 +244,20 @@
 
                 <article class="density-card">
                   <ion-icon name="analytics-outline"></ion-icon>
-                  <h2>Interaction Density</h2>
-                  <div class="density-bars">
-                    @for (bar of densityBars(); track $index) {
-                      <span [style.height.px]="bar + 20"></span>
-                    }
+                  <h2>Accuracy Rate</h2>
+                  <div class="accuracy-ring">
+                    <svg viewBox="0 0 80 80">
+                      <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(0,51,69,0.08)" stroke-width="7"/>
+                      <circle cx="40" cy="40" r="34" fill="none" stroke="var(--rt-primary)" stroke-width="7"
+                        stroke-linecap="round"
+                        [style.stroke-dasharray]="accuracyRingDash()"
+                        stroke-dashoffset="0"
+                        transform="rotate(-90 40 40)"/>
+                    </svg>
+                    <span class="accuracy-ring__label">{{ accuracyPercent() }}%</span>
                   </div>
                   <p>
-                    Peak activity increases as overlapping windows accumulate enough transcript context to form claims.
+                    {{ accuracyPercent() === 100 ? 'All claims verified as accurate so far.' : accuracyPercent() + '% of statements passed fact-check without correction.' }}
                   </p>
                 </article>
               </div>
