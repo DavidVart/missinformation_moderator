@@ -1,6 +1,6 @@
 import { CommonModule } from "@angular/common";
-import { ChangeDetectionStrategy, Component, OnDestroy, computed, inject, signal } from "@angular/core";
-// FormsModule no longer needed — Clerk handles its own UI
+import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, inject, signal } from "@angular/core";
+import { FormsModule } from "@angular/forms";
 import { IonApp, IonIcon, IonSpinner } from "@ionic/angular/standalone";
 import { addIcons } from "ionicons";
 import {
@@ -9,6 +9,7 @@ import {
   barChartOutline,
   checkmarkCircleOutline,
   closeOutline,
+  createOutline,
   documentTextOutline,
   flashOutline,
   logOutOutline,
@@ -109,6 +110,7 @@ function buildMeterBars(count: number, phase: number, intensity: number, minHeig
   selector: "app-root",
   imports: [
     CommonModule,
+    FormsModule,
     IonApp,
     IonIcon,
     IonSpinner
@@ -185,6 +187,19 @@ export class AppComponent implements OnDestroy {
     { slug: "sports", label: "Sports", icon: "trophy-outline" },
     { slug: "general", label: "General", icon: "newspaper-outline" }
   ];
+
+  // ───────────────── Profile editing ─────────────────
+  protected readonly isEditingProfile = signal(false);
+  protected readonly profileSaving = signal(false);
+  protected readonly editSchool = signal("");
+  protected readonly editMajor = signal("");
+  protected readonly editBio = signal("");
+  protected readonly editCountry = signal("");
+  protected readonly editLeaderboardVisibility = signal<"public" | "private">("private");
+
+  // ───────────────── App preferences (localStorage) ─────────────────
+  protected readonly prefAutoSpeak = signal(this.loadPref("rt-auto-speak", false));
+  protected readonly prefLanguage = signal(this.loadPref("rt-language", "auto"));
 
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
@@ -345,6 +360,7 @@ export class AppComponent implements OnDestroy {
       checkmarkCircleOutline,
       chevronForwardOutline,
       closeOutline,
+      createOutline,
       documentTextOutline,
       earOutline,
       eyeOffOutline,
@@ -509,6 +525,64 @@ export class AppComponent implements OnDestroy {
     }
 
     return "Ready";
+  }
+
+  // ───────────────────── Profile Editing ─────────────────────
+
+  protected startEditingProfile() {
+    const meta = this.auth.profileMeta();
+    this.editSchool.set(meta.school);
+    this.editMajor.set(meta.major);
+    this.editBio.set(meta.bio);
+    this.editCountry.set(meta.country);
+    this.editLeaderboardVisibility.set(meta.leaderboardVisibility);
+    this.isEditingProfile.set(true);
+  }
+
+  protected cancelEditingProfile() {
+    this.isEditingProfile.set(false);
+  }
+
+  protected async saveProfile() {
+    this.profileSaving.set(true);
+    try {
+      await this.auth.updateProfileMeta({
+        school: this.editSchool().trim(),
+        major: this.editMajor().trim(),
+        bio: this.editBio().trim(),
+        country: this.editCountry().trim(),
+        leaderboardVisibility: this.editLeaderboardVisibility()
+      });
+      this.isEditingProfile.set(false);
+      this.posthog.capture("profile_updated");
+    } catch (error) {
+      console.error("Failed to save profile:", error);
+    } finally {
+      this.profileSaving.set(false);
+    }
+  }
+
+  protected toggleAutoSpeak() {
+    const next = !this.prefAutoSpeak();
+    this.prefAutoSpeak.set(next);
+    this.savePref("rt-auto-speak", next);
+  }
+
+  private loadPref<T>(key: string, fallback: T): T {
+    try {
+      const stored = globalThis.localStorage?.getItem(key);
+      return stored !== null ? JSON.parse(stored) as T : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private savePref<T>(key: string, value: T) {
+    try {
+      globalThis.localStorage?.setItem(key, JSON.stringify(value));
+    } catch {
+      // silently fail
+    }
   }
 
   // ───────────────────── Auth methods (Clerk) ─────────────────────

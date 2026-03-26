@@ -1551,6 +1551,166 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   PROFILE FORM & SETTINGS ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════ */
+
+.settings-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.profile-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.form-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rt-muted-strong);
+}
+
+.form-input {
+  width: 100%;
+  padding: 0.8rem 0.95rem;
+  border: 1.5px solid rgba(0, 51, 69, 0.1);
+  border-radius: 0.85rem;
+  background: rgba(248, 249, 252, 0.9);
+  color: var(--rt-text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+  box-sizing: border-box;
+}
+
+.form-input:focus {
+  border-color: var(--rt-secondary);
+  box-shadow: 0 0 0 3px rgba(0, 131, 143, 0.08);
+}
+
+.form-input::placeholder {
+  color: var(--rt-muted);
+}
+
+.form-input--textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  line-height: 1.5;
+}
+
+.form-hint {
+  font-size: 0.72rem;
+  color: var(--rt-muted);
+  text-align: right;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 0.45rem;
+  padding: 0.3rem;
+  border-radius: 0.75rem;
+  background: rgba(0, 51, 69, 0.05);
+}
+
+.toggle-pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.55rem;
+  border: 0;
+  background: transparent;
+  color: var(--rt-muted-strong);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+  cursor: pointer;
+}
+
+.toggle-pill.is-active {
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--rt-primary);
+  box-shadow: 0 4px 12px rgba(0, 51, 69, 0.08);
+}
+
+.profile-actions-row {
+  display: flex;
+  gap: 0.65rem;
+  margin-top: 0.5rem;
+}
+
+.profile-actions-row > * {
+  flex: 1;
+}
+
+.secondary-cta--danger {
+  color: #8a2018;
+  border-color: rgba(186, 26, 26, 0.18);
+  background: rgba(186, 26, 26, 0.06);
+}
+
+.secondary-cta--danger:hover,
+.secondary-cta--danger:active {
+  background: rgba(186, 26, 26, 0.12);
+}
+
+.settings-item--toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 2.75rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 51, 69, 0.14);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 200ms ease;
+}
+
+.toggle-switch.is-on {
+  background: var(--rt-secondary);
+}
+
+.toggle-switch__thumb {
+  position: absolute;
+  left: 0.2rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  transition: transform 200ms ease;
+}
+
+.toggle-switch.is-on .toggle-switch__thumb {
+  transform: translateX(1.2rem);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    ANIMATIONS
    ═══════════════════════════════════════════════════════════════ */
 

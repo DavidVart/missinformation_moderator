@@ -613,15 +613,108 @@
                 </div>
               </article>
 
-              <button class="secondary-cta secondary-cta--full" type="button" (click)="openUserProfile()">
-                <ion-icon name="settings-outline"></ion-icon>
-                <span>Manage Account</span>
-              </button>
+              <!-- ─── Profile Details (editable) ─── -->
+              @if (!isEditingProfile()) {
+                <section class="settings-group">
+                  <div class="settings-heading-row">
+                    <h3 class="settings-heading">Details</h3>
+                    <button class="text-link-button" type="button" (click)="startEditingProfile()">
+                      <ion-icon name="create-outline"></ion-icon>
+                      Edit
+                    </button>
+                  </div>
+                  <div class="settings-list">
+                    <article class="settings-item">
+                      <div>
+                        <p class="settings-label">School</p>
+                        <p class="settings-description">{{ auth.profileMeta().school || 'Not set' }}</p>
+                      </div>
+                    </article>
+                    <article class="settings-item">
+                      <div>
+                        <p class="settings-label">Major</p>
+                        <p class="settings-description">{{ auth.profileMeta().major || 'Not set' }}</p>
+                      </div>
+                    </article>
+                    <article class="settings-item">
+                      <div>
+                        <p class="settings-label">Country</p>
+                        <p class="settings-description">{{ auth.profileMeta().country || 'Not set' }}</p>
+                      </div>
+                    </article>
+                    <article class="settings-item">
+                      <div>
+                        <p class="settings-label">Bio</p>
+                        <p class="settings-description">{{ auth.profileMeta().bio || 'Not set' }}</p>
+                      </div>
+                    </article>
+                    <article class="settings-item">
+                      <div>
+                        <p class="settings-label">Leaderboard</p>
+                        <p class="settings-description">{{ auth.profileMeta().leaderboardVisibility === 'public' ? 'Public — visible on rankings' : 'Private — hidden from rankings' }}</p>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              } @else {
+                <section class="settings-group">
+                  <h3 class="settings-heading">Edit Details</h3>
+                  <div class="profile-form">
+                    <div class="form-field">
+                      <label class="form-label" for="edit-school">School</label>
+                      <input class="form-input" id="edit-school" type="text" placeholder="e.g. Stanford University"
+                        [ngModel]="editSchool()" (ngModelChange)="editSchool.set($event)" />
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label" for="edit-major">Major</label>
+                      <input class="form-input" id="edit-major" type="text" placeholder="e.g. Computer Science"
+                        [ngModel]="editMajor()" (ngModelChange)="editMajor.set($event)" />
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label" for="edit-country">Country</label>
+                      <input class="form-input" id="edit-country" type="text" placeholder="e.g. United States"
+                        [ngModel]="editCountry()" (ngModelChange)="editCountry.set($event)" />
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label" for="edit-bio">Bio</label>
+                      <textarea class="form-input form-input--textarea" id="edit-bio" rows="3" maxlength="280"
+                        placeholder="Tell us about yourself..."
+                        [ngModel]="editBio()" (ngModelChange)="editBio.set($event)"></textarea>
+                      <span class="form-hint">{{ editBio().length }}/280</span>
+                    </div>
+                    <div class="form-field">
+                      <label class="form-label">Leaderboard Visibility</label>
+                      <div class="toggle-row">
+                        <button class="toggle-pill" [class.is-active]="editLeaderboardVisibility() === 'public'"
+                          type="button" (click)="editLeaderboardVisibility.set('public')">Public</button>
+                        <button class="toggle-pill" [class.is-active]="editLeaderboardVisibility() === 'private'"
+                          type="button" (click)="editLeaderboardVisibility.set('private')">Private</button>
+                      </div>
+                    </div>
+                    <div class="form-actions">
+                      <button class="secondary-cta" type="button" (click)="cancelEditingProfile()">Cancel</button>
+                      <button class="primary-cta primary-cta--inline" type="button" [disabled]="profileSaving()" (click)="saveProfile()">
+                        @if (profileSaving()) {
+                          <ion-spinner name="crescent"></ion-spinner>
+                        }
+                        <span>{{ profileSaving() ? 'Saving...' : 'Save' }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              }
 
-              <button class="secondary-cta secondary-cta--full" type="button" (click)="signOut()">
-                <ion-icon name="log-out-outline"></ion-icon>
-                <span>Sign Out</span>
-              </button>
+              <div class="profile-actions-row">
+                <button class="secondary-cta secondary-cta--full" type="button" (click)="openUserProfile()">
+                  <ion-icon name="settings-outline"></ion-icon>
+                  <span>Manage Account</span>
+                </button>
+
+                <button class="secondary-cta secondary-cta--full secondary-cta--danger" type="button" (click)="signOut()">
+                  <ion-icon name="log-out-outline"></ion-icon>
+                  <span>Sign Out</span>
+                </button>
+              </div>
             }
 
             <!-- ─── Signed Out (Clerk) ─── -->
@@ -650,11 +743,14 @@
             <section class="settings-group">
               <h3 class="settings-heading">Preferences</h3>
               <div class="settings-list">
-                <article class="settings-item">
+                <article class="settings-item settings-item--toggle">
                   <div>
                     <p class="settings-label">Auto-speak corrections</p>
-                    <p class="settings-description">Automatically read corrections aloud when detected</p>
+                    <p class="settings-description">Read corrections aloud when detected</p>
                   </div>
+                  <button class="toggle-switch" [class.is-on]="prefAutoSpeak()" type="button" (click)="toggleAutoSpeak()">
+                    <span class="toggle-switch__thumb"></span>
+                  </button>
                 </article>
                 <article class="settings-item">
                   <div>
@@ -665,7 +761,7 @@
                 <article class="settings-item">
                   <div>
                     <p class="settings-label">Preferred language</p>
-                    <p class="settings-description">Auto-detect from device settings</p>
+                    <p class="settings-description">Auto-detect from device</p>
                   </div>
                 </article>
               </div>

@@ -9,6 +9,15 @@ type ClerkUser = {
   fullName: string | null;
   primaryEmailAddress: { emailAddress: string } | null;
   imageUrl: string;
+  unsafeMetadata: Record<string, unknown>;
+};
+
+export type UserProfileMeta = {
+  school: string;
+  major: string;
+  bio: string;
+  country: string;
+  leaderboardVisibility: "public" | "private";
 };
 
 @Injectable({ providedIn: "root" })
@@ -31,6 +40,16 @@ export class AuthService {
   readonly email = computed(() => this._user()?.primaryEmailAddress?.emailAddress ?? null);
   readonly avatarUrl = computed(() => this._user()?.imageUrl ?? null);
   readonly userId = computed(() => this._user()?.id ?? null);
+  readonly profileMeta = computed<UserProfileMeta>(() => {
+    const meta = this._user()?.unsafeMetadata ?? {};
+    return {
+      school: typeof meta["school"] === "string" ? meta["school"] : "",
+      major: typeof meta["major"] === "string" ? meta["major"] : "",
+      bio: typeof meta["bio"] === "string" ? meta["bio"] : "",
+      country: typeof meta["country"] === "string" ? meta["country"] : "",
+      leaderboardVisibility: meta["leaderboardVisibility"] === "public" ? "public" : "private"
+    };
+  });
 
   async init() {
     if (!environment.clerkPublishableKey || this.clerk) {
@@ -103,6 +122,19 @@ export class AuthService {
     }
   }
 
+  async updateProfileMeta(updates: Partial<UserProfileMeta>) {
+    const clerkUser = this.clerk?.user;
+    if (!clerkUser) {
+      return;
+    }
+
+    const current = clerkUser.unsafeMetadata ?? {};
+    await clerkUser.update({
+      unsafeMetadata: { ...current, ...updates }
+    });
+    this.syncUser();
+  }
+
   async signOut() {
     const clerk = await this.waitForReady();
     if (!clerk) {
@@ -124,7 +156,8 @@ export class AuthService {
         primaryEmailAddress: clerkUser.primaryEmailAddress
           ? { emailAddress: clerkUser.primaryEmailAddress.emailAddress }
           : null,
-        imageUrl: clerkUser.imageUrl
+        imageUrl: clerkUser.imageUrl,
+        unsafeMetadata: (clerkUser.unsafeMetadata ?? {}) as Record<string, unknown>
       });
     } else {
       this._user.set(null);
