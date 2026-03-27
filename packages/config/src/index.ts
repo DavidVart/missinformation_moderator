@@ -78,12 +78,18 @@ type RedisSetOptions = {
 type ParsedRedisValue = string | number | null | ParsedRedisValue[] | Error;
 
 export class SimpleRedisClient {
-  private readonly socket: net.Socket;
+  private socket!: net.Socket;
   private buffer = Buffer.alloc(0);
   private readonly pending: RedisPending[] = [];
+  private closed = false;
+  private reconnecting = false;
 
   constructor(private readonly url: string) {
-    const redisUrl = new URL(url);
+    this.initSocket();
+  }
+
+  private initSocket() {
+    const redisUrl = new URL(this.url);
     const port = Number(redisUrl.port || "6379");
     const host = redisUrl.hostname || "127.0.0.1";
     const useTls = redisUrl.protocol === "rediss:";
@@ -121,7 +127,29 @@ export class SimpleRedisClient {
 
     this.socket.on("close", () => {
       this.failPending(new Error(`Redis connection closed for ${this.url}`));
+      if (!this.closed) {
+        this.scheduleReconnect();
+      }
     });
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnecting || this.closed) return;
+    this.reconnecting = true;
+    console.warn("[Redis] Connection lost — reconnecting in 2s...");
+
+    setTimeout(() => {
+      this.reconnecting = false;
+      if (this.closed) return;
+      this.buffer = Buffer.alloc(0);
+      try {
+        this.initSocket();
+        console.warn("[Redis] Reconnect socket created");
+      } catch (error) {
+        console.error("[Redis] Reconnect failed, retrying...", error);
+        this.scheduleReconnect();
+      }
+    }, 2000);
   }
 
   async connect() {
@@ -153,6 +181,7 @@ export class SimpleRedisClient {
   }
 
   async quit() {
+    this.closed = true;
     try {
       await this.sendCommand(["QUIT"]);
     } catch {
@@ -476,27 +505,37 @@ export async function createJsonConsumer<T>(
   await ensureConsumerGroup(client, streamName, groupName);
 
   while (true) {
-    const records = await client.xReadGroup(groupName, consumerName, {
-      key: streamName,
-      id: ">"
-    }, {
-      COUNT: 25,
-      BLOCK: blockMs
-    });
+    try {
+      const records = await client.xReadGroup(groupName, consumerName, {
+        key: streamName,
+        id: ">"
+      }, {
+        COUNT: 25,
+        BLOCK: blockMs
+      });
 
-    if (!records) {
-      continue;
-    }
+      if (!records) {
+        continue;
+      }
 
-    for (const streamRecord of records) {
-      for (const message of streamRecord.messages) {
-        try {
-          const payload = parsePayloadField(message.message as Record<string, string>, parser);
-          await onMessage(message.id, payload);
-          await client.xAck(streamName, groupName, message.id);
-        } catch (error) {
-          console.error(`Failed processing Redis message ${message.id} from ${streamName}`, error);
+      for (const streamRecord of records) {
+        for (const message of streamRecord.messages) {
+          try {
+            const payload = parsePayloadField(message.message as Record<string, string>, parser);
+            await onMessage(message.id, payload);
+            await client.xAck(streamName, groupName, message.id);
+          } catch (error) {
+            console.error(`Failed processing Redis message ${message.id} from ${streamName}`, error);
+          }
         }
+      }
+    } catch (error) {
+      console.warn(`[Redis] Consumer ${groupName}/${consumerName} read error, retrying in 3s...`, error instanceof Error ? error.message : error);
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        await ensureConsumerGroup(client, streamName, groupName);
+      } catch {
+        // Group may already exist after reconnect — that's fine
       }
     }
   }
