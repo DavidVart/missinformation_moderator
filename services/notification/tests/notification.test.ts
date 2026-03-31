@@ -5,6 +5,7 @@ import { condenseCorrection, createInterventionMessage, shouldPublishNotificatio
 const verificationResult = {
   claimId: "claim_1",
   sessionId: "session_1",
+  mode: "conversation_score" as const,
   transcriptSegmentIds: ["segment_1"],
   claimText: "The Eiffel Tower is in Berlin.",
   verdict: "false" as const,

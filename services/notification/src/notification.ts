@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from "uuid";
 
 export function shouldPublishNotification(result: ClaimVerificationResult, threshold: number) {
   return (
-    result.mode === "debate_live" &&
     ["false", "misleading"].includes(result.verdict) &&
     result.confidence >= threshold
   );
