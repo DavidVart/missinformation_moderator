@@ -126,6 +126,24 @@ export class AudioCaptureService {
     this.workletNode?.disconnect();
     this.mutedGainNode?.disconnect();
 
+    // Flush remaining buffer as a final chunk so the last few seconds aren't lost
+    const minSamples = calculateChunkSampleCount(
+      this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE,
+      1000 // at least 1 second of audio to be worth sending
+    );
+    if (this.currentBuffer.length >= minSamples && this.currentChunkStartedAtMs !== null) {
+      const chunkStartedAtMs = this.currentChunkStartedAtMs;
+      const durationMs = Math.round((this.currentBuffer.length / (this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE)) * 1000);
+      const chunk = buildChunkPayload(
+        this.currentBuffer,
+        this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE,
+        new Date(chunkStartedAtMs).toISOString(),
+        new Date(chunkStartedAtMs + durationMs).toISOString()
+      );
+      this.sequence += 1;
+      this.chunks$.next({ seq: this.sequence, ...chunk });
+    }
+
     this.mediaStream?.getTracks().forEach((track) => track.stop());
     this.mediaStream = null;
 
