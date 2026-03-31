@@ -204,8 +204,11 @@ export class AppComponent implements OnDestroy {
 
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
+  protected readonly modeShowsRealtimeOverlay = computed(() =>
+    this.selectedMode() === "debate_live"
+  );
   protected readonly showCorrectionOverlay = computed(
-    () => (this.activeTab() === "live" || this.activeTab() === "insights") && this.isCorrectionOpen() && !!this.latestIntervention()
+    () => this.modeShowsRealtimeOverlay() && (this.activeTab() === "live" || this.activeTab() === "insights") && this.isCorrectionOpen() && !!this.latestIntervention()
   );
   protected readonly transcriptFeed = computed(() => this.transcriptSegments().slice(-8));
   protected readonly archiveFeed = computed(() => this.interventions().slice(0, 8));
@@ -411,19 +414,23 @@ export class AppComponent implements OnDestroy {
     this.subscriptions.add(
       this.socketService.intervention$.subscribe((message) => {
         this.interventions.update((messages) => [message, ...messages].slice(0, 8));
-        this.statusMessage.set("Correction ready");
-        this.isCorrectionOpen.set(true);
 
-        // Clear any previous dismiss timer so a new correction resets the countdown
-        if (this.correctionDismissTimer) {
-          clearTimeout(this.correctionDismissTimer);
+        // Only show real-time overlay and status update for debate_live mode
+        if (this.modeShowsRealtimeOverlay()) {
+          this.statusMessage.set("Correction ready");
+          this.isCorrectionOpen.set(true);
+
+          // Clear any previous dismiss timer so a new correction resets the countdown
+          if (this.correctionDismissTimer) {
+            clearTimeout(this.correctionDismissTimer);
+          }
+
+          // Auto-dismiss after 12 seconds so the overlay doesn't block forever
+          this.correctionDismissTimer = setTimeout(() => {
+            this.isCorrectionOpen.set(false);
+            this.correctionDismissTimer = null;
+          }, 12_000);
         }
-
-        // Auto-dismiss after 12 seconds so the overlay doesn't block forever
-        this.correctionDismissTimer = setTimeout(() => {
-          this.isCorrectionOpen.set(false);
-          this.correctionDismissTimer = null;
-        }, 12_000);
 
         void this.refreshHistory();
       })
@@ -722,14 +729,21 @@ export class AppComponent implements OnDestroy {
     this.isCorrectionOpen.set(false);
 
     try {
-      const sessionId = await this.socketService.startSession(this.deviceId);
+      const sessionId = await this.socketService.startSession(this.deviceId, this.selectedMode());
       this.sessionId.set(sessionId);
       this.sessionStartedAtMs.set(Date.now());
       this.transcriptSegments.set([]);
       this.interventions.set([]);
       await this.audioCaptureService.start();
       this.isMonitoring.set(true);
-      this.statusMessage.set("Listening for factual claims");
+
+      const modeLabels: Record<SessionMode, string> = {
+        debate_live: "Listening for factual claims",
+        conversation_score: "Recording — score at end of session",
+        silent_review: "Capturing silently — review later",
+        background_capture: "Background capture active"
+      };
+      this.statusMessage.set(modeLabels[this.selectedMode()]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to start monitoring";
       this.micError.set(message);

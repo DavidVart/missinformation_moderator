@@ -100,7 +100,17 @@
                   }
                 </div>
                 <p class="wave-caption">
-                  {{ isMonitoring() ? 'Cross-checking rolling windows as you speak.' : 'Session is paused. Resume to keep building context.' }}
+                  @if (!isMonitoring()) {
+                    Session is paused. Resume to keep building context.
+                  } @else if (selectedMode() === 'debate_live') {
+                    Cross-checking rolling windows as you speak.
+                  } @else if (selectedMode() === 'conversation_score') {
+                    Recording — accuracy score when you stop.
+                  } @else if (selectedMode() === 'silent_review') {
+                    Capturing silently — review findings in Insights.
+                  } @else {
+                    Background capture active.
+                  }
                 </p>
                 <div class="capture-rail">
                   <div class="capture-rail__track">

@@ -1,5 +1,5 @@
 import { Injectable } from "@angular/core";
-import { interventionMessageSchema, transcriptSegmentSchema } from "@project-veritas/contracts";
+import { interventionMessageSchema, SessionMode, transcriptSegmentSchema } from "@project-veritas/contracts";
 import { BehaviorSubject, Subject } from "rxjs";
 import { io, Socket } from "socket.io-client";
 import { environment } from "../../../environments/environment";
@@ -82,11 +82,12 @@ export class MonitoringSocketService {
     }
   }
 
-  async startSession(deviceId: string) {
+  async startSession(deviceId: string, mode: SessionMode = "debate_live") {
     await this.ensureConnected();
 
     const ack = await this.emitWithAck("session:start", {
       deviceId,
+      mode,
       chunkMs: 4000,
       sampleRate: 16000,
       preferredLanguage: preferredLanguage()
