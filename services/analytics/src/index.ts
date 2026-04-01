@@ -317,13 +317,29 @@ async function persistTranscriptTopic(pool: Pool, segment: z.infer<typeof transc
  * (which bypasses the identity service's magic-link flow).
  */
 async function ensureUserProfile(pool: Pool, userId: string) {
+  const placeholderEmail = `${userId}@clerk.user`;
+
+  // Check if this user already exists — skip the insert entirely to avoid
+  // email UNIQUE constraint collisions with stale identity-service rows.
+  const existing = await pool.query(`SELECT 1 FROM users WHERE user_id = $1`, [userId]);
+  if (existing.rowCount && existing.rowCount > 0) {
+    return;
+  }
+
+  // Only insert if no email collision exists (a proper sync via /profile/sync
+  // handles the collision by deleting the stale row first).
+  const emailConflict = await pool.query(`SELECT 1 FROM users WHERE email = $1`, [placeholderEmail]);
+  if (emailConflict.rowCount && emailConflict.rowCount > 0) {
+    return;
+  }
+
   await pool.query(
     `
       INSERT INTO users (user_id, email, created_at, updated_at)
-      VALUES ($1, $1 || '@clerk.user', NOW(), NOW())
+      VALUES ($1, $2, NOW(), NOW())
       ON CONFLICT (user_id) DO NOTHING
     `,
-    [userId]
+    [userId, placeholderEmail]
   );
 
   await pool.query(
@@ -817,6 +833,22 @@ async function bootstrap() {
     }
 
     const { userId, displayName, email, avatar, school, major, country, bio, leaderboardVisibility } = body.data;
+    const resolvedEmail = email ?? `${userId}@clerk.user`;
+
+    // Remove any stale identity-service user that holds the same email
+    // but a different user_id (email has a UNIQUE constraint on users table).
+    await pool.query(
+      `DELETE FROM auth_sessions WHERE user_id IN (SELECT user_id FROM users WHERE email = $1 AND user_id != $2)`,
+      [resolvedEmail, userId]
+    );
+    await pool.query(
+      `DELETE FROM profiles WHERE user_id IN (SELECT user_id FROM users WHERE email = $1 AND user_id != $2)`,
+      [resolvedEmail, userId]
+    );
+    await pool.query(
+      `DELETE FROM users WHERE email = $1 AND user_id != $2`,
+      [resolvedEmail, userId]
+    );
 
     await pool.query(
       `
@@ -824,7 +856,7 @@ async function bootstrap() {
         VALUES ($1, $2, NOW(), NOW())
         ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, updated_at = NOW()
       `,
-      [userId, email ?? `${userId}@clerk.user`]
+      [userId, resolvedEmail]
     );
 
     await pool.query(
