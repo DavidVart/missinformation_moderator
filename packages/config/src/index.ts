@@ -14,8 +14,7 @@ export const STREAM_NAMES = {
   notificationsOutbound: "notifications.outbound",
   topicsAnalyzed: "topics.analyzed",
   sessionScores: "sessions.scores",
-  reflectionsGenerated: "reflections.generated",
-  newsIngested: "news.ingested"
+  reflectionsGenerated: "reflections.generated"
 } as const;
 
 export const CONSUMER_GROUPS = {

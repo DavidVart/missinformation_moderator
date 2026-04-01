@@ -230,33 +230,6 @@ async function bootstrapSchema(pool: Pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS news_articles (
-      article_id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      topic_slug TEXT NOT NULL,
-      source_name TEXT NOT NULL,
-      url TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      why_it_matters TEXT NOT NULL,
-      related_weak_point TEXT,
-      published_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS user_topic_preferences (
-      user_id TEXT NOT NULL,
-      topic_slug TEXT NOT NULL,
-      following BOOLEAN NOT NULL DEFAULT TRUE,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (user_id, topic_slug)
-    );
-
-    CREATE TABLE IF NOT EXISTS user_saved_articles (
-      user_id TEXT NOT NULL,
-      article_id TEXT NOT NULL,
-      saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (user_id, article_id)
-    );
   `);
 }
 

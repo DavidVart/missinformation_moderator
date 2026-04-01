@@ -339,45 +339,6 @@ export const topicMisinformationPointSchema = z.object({
 
 export type TopicMisinformationPoint = z.infer<typeof topicMisinformationPointSchema>;
 
-export const topicPreferenceSchema = z.object({
-  topicSlug: topicSlugSchema,
-  following: z.boolean().default(true)
-});
-
-export type TopicPreference = z.infer<typeof topicPreferenceSchema>;
-
-export const newsArticleSchema = z.object({
-  articleId: z.string(),
-  title: z.string(),
-  topicSlug: topicSlugSchema,
-  sourceName: z.string(),
-  url: z.string().url(),
-  summary: z.string(),
-  whyItMatters: z.string(),
-  relatedWeakPoint: z.string().optional(),
-  publishedAt: z.string(),
-  saved: z.boolean().default(false)
-});
-
-export type NewsArticle = z.infer<typeof newsArticleSchema>;
-
-export const newsFeedResponseSchema = z.object({
-  dailyBrief: z.array(newsArticleSchema),
-  topicExplainers: z.array(newsArticleSchema),
-  correctionReading: z.array(newsArticleSchema),
-  saved: z.array(newsArticleSchema)
-});
-
-export type NewsFeedResponse = z.infer<typeof newsFeedResponseSchema>;
-
-export const newsPreferencesRequestSchema = z.object({
-  followedTopics: z.array(topicSlugSchema).min(1)
-});
-
-export const newsSaveRequestSchema = z.object({
-  articleId: z.string(),
-  saved: z.boolean().default(true)
-});
 
 // ───────────────── Session History ─────────────────
 
