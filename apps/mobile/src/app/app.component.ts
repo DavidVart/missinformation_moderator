@@ -66,7 +66,19 @@ type AppTab = "live" | "insights" | "rankings" | "profile";
 
 type RankingsSubTab = "global" | "schools" | "majors";
 
-type InsightsSubTab = "session" | "topics" | "trends";
+type InsightsSubTab = "session" | "topics" | "trends" | "history";
+
+type PastSession = {
+  sessionId: string;
+  mode: string;
+  status: string;
+  startedAt: string;
+  stoppedAt: string | null;
+  durationMs: number;
+  segmentCount: number;
+  correctionCount: number;
+  accuracyScore: number | null;
+};
 
 type SessionModeOption = {
   mode: SessionMode;
@@ -188,6 +200,11 @@ export class AppComponent implements OnDestroy {
     { slug: "sports", label: "Sports", icon: "trophy-outline" },
     { slug: "general", label: "General", icon: "newspaper-outline" }
   ];
+
+  // ───────────────── Session History ─────────────────
+  protected readonly pastSessions = signal<PastSession[]>([]);
+  protected readonly pastSessionsTotal = signal(0);
+  protected readonly historyLoading = signal(false);
 
   // ───────────────── Profile editing ─────────────────
   protected readonly isEditingProfile = signal(false);
@@ -399,6 +416,26 @@ export class AppComponent implements OnDestroy {
     this.posthog.init();
     void this.auth.init();
 
+    // Sync Clerk profile to analytics DB whenever user signs in
+    effect(() => {
+      const userId = this.auth.userId();
+      const displayName = this.auth.displayName();
+      if (userId && displayName) {
+        const meta = this.auth.profileMeta();
+        void this.analyticsApi.syncProfile({
+          userId,
+          displayName,
+          email: this.auth.email() ?? undefined,
+          avatar: this.auth.avatarUrl() ?? undefined,
+          school: meta.school || undefined,
+          major: meta.major || undefined,
+          country: meta.country || undefined,
+          bio: meta.bio || undefined,
+          leaderboardVisibility: meta.leaderboardVisibility
+        });
+      }
+    });
+
     this.subscriptions.add(
       this.socketService.connectionState$.subscribe((state) => {
         this.transportStatus.set(state);
@@ -482,6 +519,9 @@ export class AppComponent implements OnDestroy {
     if (sub === "trends") {
       void this.loadMonthlyReflection();
     }
+    if (sub === "history") {
+      void this.loadPastSessions();
+    }
   }
 
   protected closeCorrectionOverlay() {
@@ -561,13 +601,30 @@ export class AppComponent implements OnDestroy {
   protected async saveProfile() {
     this.profileSaving.set(true);
     try {
-      await this.auth.updateProfileMeta({
-        school: this.editSchool().trim(),
-        major: this.editMajor().trim(),
-        bio: this.editBio().trim(),
-        country: this.editCountry().trim(),
-        leaderboardVisibility: this.editLeaderboardVisibility()
-      });
+      const school = this.editSchool().trim();
+      const major = this.editMajor().trim();
+      const bio = this.editBio().trim();
+      const country = this.editCountry().trim();
+      const leaderboardVisibility = this.editLeaderboardVisibility();
+
+      await this.auth.updateProfileMeta({ school, major, bio, country, leaderboardVisibility });
+
+      // Sync profile to analytics service so leaderboard/reflections have the data
+      const userId = this.auth.userId();
+      if (userId) {
+        void this.analyticsApi.syncProfile({
+          userId,
+          displayName: this.auth.displayName(),
+          email: this.auth.email() ?? undefined,
+          avatar: this.auth.avatarUrl() ?? undefined,
+          school: school || undefined,
+          major: major || undefined,
+          country: country || undefined,
+          bio: bio || undefined,
+          leaderboardVisibility
+        });
+      }
+
       this.isEditingProfile.set(false);
       this.posthog.capture("profile_updated");
     } catch (error) {
@@ -662,7 +719,8 @@ export class AppComponent implements OnDestroy {
   protected async loadMonthlyReflection() {
     this.reflectionLoading.set(true);
     try {
-      const reflection = await this.analyticsApi.getMonthlyReflection(this.currentReflectionMonth());
+      const userId = this.auth.userId() ?? undefined;
+      const reflection = await this.analyticsApi.getMonthlyReflection(this.currentReflectionMonth(), userId);
       this.monthlyReflection.set(reflection);
     } catch {
       this.monthlyReflection.set(null);
@@ -719,6 +777,44 @@ export class AppComponent implements OnDestroy {
     return this.allTopics.find((t) => t.slug === slug)?.label ?? slug;
   }
 
+  // ───────────────────── Session History ─────────────────────
+
+  protected async loadPastSessions() {
+    this.historyLoading.set(true);
+    try {
+      const userId = this.auth.userId?.() ?? undefined;
+      const data = await this.historyApi.listSessions({
+        userId,
+        deviceId: userId ? undefined : this.deviceId,
+        limit: 20
+      });
+      this.pastSessions.set(data.sessions as PastSession[]);
+      this.pastSessionsTotal.set(data.total);
+    } catch {
+      this.pastSessions.set([]);
+      this.pastSessionsTotal.set(0);
+    } finally {
+      this.historyLoading.set(false);
+    }
+  }
+
+  protected formatSessionDuration(ms: number): string {
+    if (ms <= 0) return "0m 00s";
+    const minutes = Math.floor(ms / 60_000);
+    const seconds = Math.floor((ms % 60_000) / 1000);
+    return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  }
+
+  protected sessionModeLabel(mode: string): string {
+    const labels: Record<string, string> = {
+      debate_live: "Debate Live",
+      conversation_score: "Talk + Score",
+      silent_review: "Silent Review",
+      background_capture: "Background"
+    };
+    return labels[mode] ?? mode;
+  }
+
   // ───────────────────── Monitoring ─────────────────────
 
   private async startMonitoring() {
@@ -729,7 +825,8 @@ export class AppComponent implements OnDestroy {
     this.isCorrectionOpen.set(false);
 
     try {
-      const sessionId = await this.socketService.startSession(this.deviceId, this.selectedMode());
+      const userId = this.auth.userId() ?? undefined;
+      const sessionId = await this.socketService.startSession(this.deviceId, this.selectedMode(), userId);
       this.sessionId.set(sessionId);
       this.sessionStartedAtMs.set(Date.now());
       this.transcriptSegments.set([]);

@@ -27,6 +27,28 @@ function resolveAnalyticsUrl(): string {
 export class AnalyticsApiService {
   private readonly baseUrl = resolveAnalyticsUrl();
 
+  async syncProfile(data: {
+    userId: string;
+    displayName: string;
+    email?: string;
+    avatar?: string;
+    school?: string;
+    major?: string;
+    country?: string;
+    bio?: string;
+    leaderboardVisibility: "public" | "private";
+  }): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/profile/sync`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Profile sync failed with status ${response.status}`);
+    }
+  }
+
   async getGlobalLeaderboard(): Promise<LeaderboardResponse> {
     const response = await fetch(`${this.baseUrl}/leaderboards/global`);
     if (!response.ok) {
@@ -59,9 +81,13 @@ export class AnalyticsApiService {
     return response.json() as Promise<LeaderboardResponse>;
   }
 
-  async getMonthlyReflection(month: string): Promise<MonthlyReflection | null> {
-    const response = await fetch(`${this.baseUrl}/reflections/monthly?month=${month}`);
-    if (response.status === 404) {
+  async getMonthlyReflection(month: string, userId?: string): Promise<MonthlyReflection | null> {
+    const query = new URLSearchParams({ month });
+    if (userId) {
+      query.set("userId", userId);
+    }
+    const response = await fetch(`${this.baseUrl}/reflections/monthly?${query.toString()}`);
+    if (response.status === 404 || response.status === 401) {
       return null;
     }
     if (!response.ok) {

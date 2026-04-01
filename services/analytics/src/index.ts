@@ -311,7 +311,37 @@ async function persistTranscriptTopic(pool: Pool, segment: z.infer<typeof transc
   return topic;
 }
 
+/**
+ * Ensure a minimal user + profile row exists for a given userId so that
+ * leaderboard JOINs work even when the user authenticated via Clerk
+ * (which bypasses the identity service's magic-link flow).
+ */
+async function ensureUserProfile(pool: Pool, userId: string) {
+  await pool.query(
+    `
+      INSERT INTO users (user_id, email, created_at, updated_at)
+      VALUES ($1, $1 || '@clerk.user', NOW(), NOW())
+      ON CONFLICT (user_id) DO NOTHING
+    `,
+    [userId]
+  );
+
+  await pool.query(
+    `
+      INSERT INTO profiles (user_id, display_name, leaderboard_visibility, created_at, updated_at)
+      VALUES ($1, 'User', 'private', NOW(), NOW())
+      ON CONFLICT (user_id) DO NOTHING
+    `,
+    [userId]
+  );
+}
+
 async function recomputeSessionScore(pool: Pool, result: ClaimVerificationResult) {
+  // Auto-create user/profile for Clerk-authenticated users so leaderboard JOINs work
+  if (result.userId) {
+    await ensureUserProfile(pool, result.userId);
+  }
+
   const aggregates = await pool.query(
     `
       SELECT
@@ -764,10 +794,72 @@ async function bootstrap() {
     });
   });
 
+  /**
+   * Sync profile data from Clerk-authenticated users into the profiles table
+   * so leaderboard queries can display names, schools, majors, etc.
+   */
+  app.put(`${env.API_PREFIX}/profile/sync`, async (request, response) => {
+    const body = z.object({
+      userId: z.string().min(1),
+      displayName: z.string().min(1),
+      email: z.string().email().optional(),
+      avatar: z.string().url().optional(),
+      school: z.string().optional(),
+      major: z.string().optional(),
+      country: z.string().optional(),
+      bio: z.string().max(280).optional(),
+      leaderboardVisibility: z.enum(["public", "private"]).default("private")
+    }).safeParse(request.body);
+
+    if (!body.success) {
+      response.status(400).json({ message: "Invalid body", errors: body.error.issues });
+      return;
+    }
+
+    const { userId, displayName, email, avatar, school, major, country, bio, leaderboardVisibility } = body.data;
+
+    await pool.query(
+      `
+        INSERT INTO users (user_id, email, created_at, updated_at)
+        VALUES ($1, $2, NOW(), NOW())
+        ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, updated_at = NOW()
+      `,
+      [userId, email ?? `${userId}@clerk.user`]
+    );
+
+    await pool.query(
+      `
+        INSERT INTO profiles (user_id, display_name, avatar, school, major, country, bio, leaderboard_visibility, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+          display_name = EXCLUDED.display_name,
+          avatar = EXCLUDED.avatar,
+          school = EXCLUDED.school,
+          major = EXCLUDED.major,
+          country = EXCLUDED.country,
+          bio = EXCLUDED.bio,
+          leaderboard_visibility = EXCLUDED.leaderboard_visibility,
+          updated_at = NOW()
+      `,
+      [userId, displayName, avatar ?? null, school ?? null, major ?? null, country ?? null, bio ?? null, leaderboardVisibility]
+    );
+
+    response.json({ ok: true });
+  });
+
   app.get(`${env.API_PREFIX}/reflections/monthly`, async (request, response) => {
+    // Support both Bearer token auth (identity service) and userId query param (Clerk)
+    let userId: string | null = null;
+
     const session = await resolveUserFromAuthSession(pool, request.header("authorization"));
-    if (!session) {
-      response.status(401).json({ message: "Unauthorized" });
+    if (session) {
+      userId = String(session.user_id);
+    } else if (typeof request.query.userId === "string" && request.query.userId.length > 0) {
+      userId = request.query.userId;
+    }
+
+    if (!userId) {
+      response.status(401).json({ message: "Unauthorized — provide Bearer token or userId query parameter" });
       return;
     }
 
@@ -777,7 +869,7 @@ async function bootstrap() {
         : new Date().toISOString().slice(0, 7)
     );
 
-    const reflection = await generateMonthlyReflection(pool, String(session.user_id), month);
+    const reflection = await generateMonthlyReflection(pool, userId, month);
     response.json(reflection);
   });
 

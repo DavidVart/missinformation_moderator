@@ -55,6 +55,72 @@ async function bootstrap() {
     });
   });
 
+  app.get(`${env.API_PREFIX}/sessions`, async (request, response) => {
+    const userId = request.query.userId as string | undefined;
+    const deviceId = request.query.deviceId as string | undefined;
+    const limit = Math.min(Number(request.query.limit) || 50, 100);
+    const offset = Number(request.query.offset) || 0;
+
+    if (!userId && !deviceId) {
+      response.status(400).json({ message: "userId or deviceId query parameter required" });
+      return;
+    }
+
+    const filterCol = userId ? "user_id" : "device_id";
+    const filterVal = userId || deviceId;
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as total FROM sessions WHERE ${filterCol} = $1`,
+      [filterVal]
+    );
+
+    const sessionsResult = await pool.query(
+      `
+        SELECT
+          s.session_id,
+          s.mode,
+          s.status,
+          s.started_at,
+          s.stopped_at,
+          COALESCE(EXTRACT(EPOCH FROM (s.stopped_at - s.started_at)) * 1000, 0)::bigint AS duration_ms,
+          COALESCE(ts.segment_count, 0) AS segment_count,
+          COALESCE(iv.correction_count, 0) AS correction_count,
+          sc.accuracy_score
+        FROM sessions s
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS segment_count
+          FROM transcript_segments
+          WHERE session_id = s.session_id
+        ) ts ON true
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*)::int AS correction_count
+          FROM interventions
+          WHERE session_id = s.session_id
+        ) iv ON true
+        LEFT JOIN session_scores sc ON sc.session_id = s.session_id
+        WHERE s.${filterCol} = $1
+        ORDER BY s.started_at DESC
+        LIMIT $2 OFFSET $3
+      `,
+      [filterVal, limit, offset]
+    );
+
+    response.json({
+      sessions: sessionsResult.rows.map((row: Record<string, unknown>) => ({
+        sessionId: row.session_id,
+        mode: row.mode,
+        status: row.status,
+        startedAt: row.started_at,
+        stoppedAt: row.stopped_at ?? null,
+        durationMs: Number(row.duration_ms),
+        segmentCount: Number(row.segment_count),
+        correctionCount: Number(row.correction_count),
+        accuracyScore: row.accuracy_score != null ? Number(row.accuracy_score) : null
+      })),
+      total: Number(countResult.rows[0]?.total ?? 0)
+    });
+  });
+
   app.get(`${env.API_PREFIX}/sessions/:sessionId`, async (request, response) => {
     const { sessionId } = request.params;
     const sessionResult = await pool.query(

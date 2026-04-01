@@ -1,6 +1,23 @@
 import { Injectable } from "@angular/core";
 import { environment } from "../../../environments/environment";
 
+type SessionSummaryResponse = {
+  sessionId: string;
+  mode: string;
+  status: string;
+  startedAt: string;
+  stoppedAt: string | null;
+  durationMs: number;
+  segmentCount: number;
+  correctionCount: number;
+  accuracyScore: number | null;
+};
+
+type SessionListResponse = {
+  sessions: SessionSummaryResponse[];
+  total: number;
+};
+
 type InterventionHistoryResponse = {
   interventions: Array<{
     messageId: string;
@@ -37,6 +54,22 @@ function resolveHistoryUrl(): string {
 @Injectable({ providedIn: "root" })
 export class HistoryApiService {
   private readonly baseUrl = resolveHistoryUrl();
+
+  async listSessions(params: { userId?: string; deviceId?: string; limit?: number; offset?: number }): Promise<SessionListResponse> {
+    const query = new URLSearchParams();
+    if (params.userId) query.set("userId", params.userId);
+    if (params.deviceId) query.set("deviceId", params.deviceId);
+    if (params.limit) query.set("limit", String(params.limit));
+    if (params.offset) query.set("offset", String(params.offset));
+
+    const response = await fetch(`${this.baseUrl}/sessions?${query.toString()}`);
+
+    if (!response.ok) {
+      throw new Error(`History list request failed with status ${response.status}`);
+    }
+
+    return response.json() as Promise<SessionListResponse>;
+  }
 
   async getInterventions(sessionId: string): Promise<InterventionHistoryResponse> {
     const response = await fetch(`${this.baseUrl}/sessions/${sessionId}/interventions`);

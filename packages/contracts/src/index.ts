@@ -379,6 +379,29 @@ export const newsSaveRequestSchema = z.object({
   saved: z.boolean().default(true)
 });
 
+// ───────────────── Session History ─────────────────
+
+export const sessionSummarySchema = z.object({
+  sessionId: z.string(),
+  mode: sessionModeSchema,
+  status: z.enum(["active", "stopped"]),
+  startedAt: z.string(),
+  stoppedAt: z.string().nullable(),
+  durationMs: z.number().int().nonnegative(),
+  segmentCount: z.number().int().nonnegative(),
+  correctionCount: z.number().int().nonnegative(),
+  accuracyScore: z.number().min(0).max(100).nullable()
+});
+
+export type SessionSummary = z.infer<typeof sessionSummarySchema>;
+
+export const sessionListResponseSchema = z.object({
+  sessions: z.array(sessionSummarySchema),
+  total: z.number().int().nonnegative()
+});
+
+export type SessionListResponse = z.infer<typeof sessionListResponseSchema>;
+
 export type RedisStreamRecord<T> = {
   id: string;
   payload: T;

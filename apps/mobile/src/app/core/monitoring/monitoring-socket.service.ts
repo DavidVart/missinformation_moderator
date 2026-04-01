@@ -82,11 +82,12 @@ export class MonitoringSocketService {
     }
   }
 
-  async startSession(deviceId: string, mode: SessionMode = "debate_live") {
+  async startSession(deviceId: string, mode: SessionMode = "debate_live", userId?: string) {
     await this.ensureConnected();
 
     const ack = await this.emitWithAck("session:start", {
       deviceId,
+      ...(userId ? { userId } : {}),
       mode,
       chunkMs: 4000,
       sampleRate: 16000,

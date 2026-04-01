@@ -222,6 +222,11 @@
                 <ion-icon name="trending-up-outline"></ion-icon>
                 <span>Trends</span>
               </button>
+              <button class="sub-tab-pill" [class.is-active]="insightsSubTab() === 'history'"
+                type="button" (click)="selectInsightsSubTab('history')">
+                <ion-icon name="time-outline"></ion-icon>
+                <span>History</span>
+              </button>
             </div>
 
             <!-- ─── Session sub-tab ─── -->
@@ -460,6 +465,59 @@
                 } @else {
                   <div class="empty-panel">
                     No reflection data for this month. Complete sessions to generate your monthly performance summary.
+                  </div>
+                }
+              </section>
+            }
+
+            <!-- ─── History sub-tab ─── -->
+            @if (insightsSubTab() === 'history') {
+              <section class="stack-panel">
+                <div class="section-heading">
+                  <h2>Past Sessions</h2>
+                  <span>{{ pastSessionsTotal() }}</span>
+                </div>
+
+                @if (historyLoading()) {
+                  <div class="empty-panel empty-panel--waiting">
+                    <ion-spinner name="crescent"></ion-spinner>
+                    Loading session history…
+                  </div>
+                } @else if (pastSessions().length > 0) {
+                  <div class="history-list">
+                    @for (session of pastSessions(); track session.sessionId) {
+                      <article class="history-card">
+                        <div class="history-card__header">
+                          <div class="history-card__mode">
+                            <span class="history-status-dot" [class.is-active]="session.status === 'active'"></span>
+                            <strong>{{ sessionModeLabel(session.mode) }}</strong>
+                          </div>
+                          <span class="history-card__date">{{ session.startedAt | date: 'MMM d, h:mm a' }}</span>
+                        </div>
+                        <div class="history-card__metrics">
+                          <div class="history-metric">
+                            <span>Duration</span>
+                            <strong>{{ formatSessionDuration(session.durationMs) }}</strong>
+                          </div>
+                          <div class="history-metric">
+                            <span>Segments</span>
+                            <strong>{{ session.segmentCount }}</strong>
+                          </div>
+                          <div class="history-metric">
+                            <span>Corrections</span>
+                            <strong>{{ session.correctionCount }}</strong>
+                          </div>
+                          <div class="history-metric">
+                            <span>Accuracy</span>
+                            <strong>{{ session.accuracyScore != null ? session.accuracyScore + '%' : '—' }}</strong>
+                          </div>
+                        </div>
+                      </article>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-panel">
+                    No past sessions found. Complete a monitoring session to see it here.
                   </div>
                 }
               </section>
