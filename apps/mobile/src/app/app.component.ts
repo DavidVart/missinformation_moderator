@@ -422,7 +422,7 @@ export class AppComponent implements OnDestroy {
       const displayName = this.auth.displayName();
       if (userId && displayName) {
         const meta = this.auth.profileMeta();
-        void this.analyticsApi.syncProfile({
+        this.analyticsApi.syncProfile({
           userId,
           displayName,
           email: this.auth.email() ?? undefined,
@@ -432,6 +432,8 @@ export class AppComponent implements OnDestroy {
           country: meta.country || undefined,
           bio: meta.bio || undefined,
           leaderboardVisibility: meta.leaderboardVisibility
+        }).catch(() => {
+          // Profile sync is best-effort — don't block the user experience
         });
       }
     });
@@ -785,7 +787,7 @@ export class AppComponent implements OnDestroy {
       const userId = this.auth.userId?.() ?? undefined;
       const data = await this.historyApi.listSessions({
         userId,
-        deviceId: userId ? undefined : this.deviceId,
+        deviceId: this.deviceId,
         limit: 20
       });
       this.pastSessions.set(data.sessions as PastSession[]);

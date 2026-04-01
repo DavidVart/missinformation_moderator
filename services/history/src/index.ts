@@ -66,12 +66,30 @@ async function bootstrap() {
       return;
     }
 
-    const filterCol = userId ? "user_id" : "device_id";
-    const filterVal = userId || deviceId;
+    // Build a WHERE clause that matches sessions by userId OR deviceId.
+    // This ensures authenticated users see both their old guest sessions
+    // (matched by deviceId) and new authenticated sessions (matched by userId).
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+    let paramIndex = 1;
+
+    if (userId) {
+      conditions.push(`s.user_id = $${paramIndex++}`);
+      params.push(userId);
+    }
+    if (deviceId) {
+      conditions.push(`s.device_id = $${paramIndex++}`);
+      params.push(deviceId);
+    }
+
+    const whereClause = conditions.join(" OR ");
+    const limitParam = paramIndex++;
+    const offsetParam = paramIndex++;
+    params.push(limit, offset);
 
     const countResult = await pool.query(
-      `SELECT COUNT(*) as total FROM sessions WHERE ${filterCol} = $1`,
-      [filterVal]
+      `SELECT COUNT(*) as total FROM sessions s WHERE ${whereClause}`,
+      params.slice(0, -2)
     );
 
     const sessionsResult = await pool.query(
@@ -98,11 +116,11 @@ async function bootstrap() {
           WHERE session_id = s.session_id
         ) iv ON true
         LEFT JOIN session_scores sc ON sc.session_id = s.session_id
-        WHERE s.${filterCol} = $1
+        WHERE ${whereClause}
         ORDER BY s.started_at DESC
-        LIMIT $2 OFFSET $3
+        LIMIT $${limitParam} OFFSET $${offsetParam}
       `,
-      [filterVal, limit, offset]
+      params
     );
 
     response.json({

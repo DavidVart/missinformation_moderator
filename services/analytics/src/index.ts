@@ -803,7 +803,7 @@ async function bootstrap() {
       userId: z.string().min(1),
       displayName: z.string().min(1),
       email: z.string().email().optional(),
-      avatar: z.string().url().optional(),
+      avatar: z.string().optional(),
       school: z.string().optional(),
       major: z.string().optional(),
       country: z.string().optional(),
