@@ -133,15 +133,19 @@
                   <span>{{ transcriptSegments().length }}</span>
                 </div>
 
-                @if (transcriptFeed().length > 0) {
-                  <div class="transcript-feed">
-                    @for (segment of transcriptFeed(); track segment.segmentId) {
-                      <article class="transcript-entry">
-                        <p class="transcript-meta">
-                          {{ segment.speakerLabel || 'Live' }} &bull; {{ segment.startedAt | date: 'shortTime' }}
-                        </p>
-                        <p class="transcript-body">{{ segment.text }}</p>
-                      </article>
+                @if (unifiedTranscript().length > 0) {
+                  <div class="transcript-flow">
+                    @for (part of unifiedTranscript(); track $index) {
+                      @if (part.type === 'correction') {
+                        <span class="transcript-correction-mark" title="Correction: {{ part.content }}">
+                          <ion-icon name="warning-outline"></ion-icon>
+                        </span>
+                      } @else {
+                        <span class="transcript-text">{{ part.content }} </span>
+                      }
+                    }
+                    @if (isMonitoring()) {
+                      <span class="transcript-cursor" aria-hidden="true"></span>
                     }
                   </div>
                 } @else {

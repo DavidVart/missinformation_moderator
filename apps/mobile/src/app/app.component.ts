@@ -233,6 +233,35 @@ export class AppComponent implements OnDestroy {
     () => this.modeShowsRealtimeOverlay() && (this.activeTab() === "live" || this.activeTab() === "insights") && this.isCorrectionOpen() && !!this.latestIntervention()
   );
   protected readonly transcriptFeed = computed(() => this.transcriptSegments().slice(-8));
+  protected readonly unifiedTranscript = computed(() => {
+    const segments = this.transcriptSegments();
+    const corrections = this.interventions();
+    if (segments.length === 0) return [];
+
+    // Build a timeline: each segment has text + timestamp, corrections get inserted at their timestamp
+    const correctionTimes = new Map<number, string>();
+    for (const c of corrections) {
+      const t = Date.parse(c.issuedAt);
+      if (Number.isFinite(t)) {
+        correctionTimes.set(t, c.correction);
+      }
+    }
+
+    // Merge segments into runs of text, inserting correction markers between segments
+    const parts: { type: "text" | "correction"; content: string }[] = [];
+    for (const segment of segments) {
+      const segEnd = Date.parse(segment.endedAt ?? segment.startedAt);
+      // Check if any correction was issued around this segment
+      for (const [cTime, cText] of correctionTimes) {
+        if (cTime <= segEnd + 2000 && cTime >= Date.parse(segment.startedAt) - 1000) {
+          parts.push({ type: "correction", content: cText });
+          correctionTimes.delete(cTime);
+        }
+      }
+      parts.push({ type: "text", content: segment.text });
+    }
+    return parts;
+  });
   protected readonly archiveFeed = computed(() => this.interventions().slice(0, 8));
   protected readonly sessionMetrics = computed(() => ({
     duration: this.formatDurationLabel(),
