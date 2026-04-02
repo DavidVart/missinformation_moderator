@@ -2,24 +2,21 @@
   <div class="app-shell">
     <div class="app-scroll-area">
       <header class="topbar">
-        <div class="brand-lockup">
+        <div class="topbar__left">
           <div class="avatar-chip">
             <ion-icon name="pulse-outline"></ion-icon>
           </div>
-          <div>
-            <p class="brand-name">Real Talk</p>
-            <p class="brand-subtitle">{{ sessionHeaderLabel() }}</p>
-          </div>
         </div>
 
-        <div class="topbar-actions">
-          <div class="transport-pill" [class.is-live]="transportStatus() === 'connected'">
-            <span class="transport-pill__dot"></span>
-            <span>{{ transportPillLabel() }}</span>
-          </div>
+        <p class="brand-name">Real Talk</p>
 
-          <button class="icon-button" type="button" aria-label="Settings">
-            <ion-icon name="settings-outline"></ion-icon>
+        <div class="topbar__right">
+          <button class="topbar-profile-btn" type="button" (click)="selectTab('profile')">
+            @if (auth.isSignedIn() && auth.avatarUrl()) {
+              <img [src]="auth.avatarUrl()" alt="Profile" />
+            } @else {
+              <ion-icon name="person-outline"></ion-icon>
+            }
           </button>
         </div>
       </header>
@@ -28,52 +25,59 @@
         <!-- ═══════════════════════════════════════════ LIVE TAB ═══════════════════════════════════════════ -->
         @if (activeTab() === 'live') {
           <section class="session-view">
-            <!-- ─── Idle state: compact hero + mode selector + CTA ─── -->
+            <!-- ─── Idle state: centered mic hero ─── -->
             @if (!isMonitoring() && !hasSessionData()) {
-              <div class="live-idle">
-                <div class="compact-hero">
-                  <div class="eyebrow-pill">Real-Time Fact Check</div>
-                  <h1 class="compact-hero__title">Speak freely.<br/><span>We'll verify.</span></h1>
-                  <p class="compact-hero__copy">
-                    Analyze live dialogue, detect misinformation, and keep discussions grounded in facts.
-                  </p>
-                </div>
-
-                <div class="mode-selector">
-                  <div class="mode-grid">
-                    @for (opt of sessionModes; track opt.mode) {
-                      <button
-                        class="mode-card"
-                        [class.is-selected]="selectedMode() === opt.mode"
-                        type="button"
-                        (click)="selectSessionMode(opt.mode)">
-                        <ion-icon [name]="opt.icon"></ion-icon>
-                        <strong>{{ opt.title }}</strong>
-                        <span>{{ opt.description }}</span>
-                      </button>
-                    }
-                  </div>
-                </div>
-
-                @if (micError()) {
-                  <div class="inline-alert inline-alert--error">
-                    {{ micError() }}
-                  </div>
-                }
-
-                <button class="primary-cta" type="button" [disabled]="isBusy()" (click)="toggleMonitoring()">
-                  <ion-icon name="mic-outline"></ion-icon>
-                  <span>{{ isBusy() ? 'Starting...' : 'Start Listening' }}</span>
+              <div class="mic-hero">
+                <button
+                  class="mic-hero__button"
+                  type="button"
+                  [disabled]="isBusy()"
+                  (click)="toggleMonitoring()">
                   @if (isBusy()) {
                     <ion-spinner name="crescent"></ion-spinner>
+                  } @else {
+                    <ion-icon name="mic-outline"></ion-icon>
                   }
+                  <span class="mic-hero__pulse" aria-hidden="true"></span>
+                  <span class="mic-hero__pulse mic-hero__pulse--delayed" aria-hidden="true"></span>
                 </button>
 
-                <div class="status-footer">
-                  <span class="status-dot" [class.is-online]="transportStatus() === 'connected'"></span>
-                  <span>{{ homeStatusLabel() }}</span>
-                </div>
+                <p class="mic-hero__hint">Tap to start listening</p>
               </div>
+
+              <button class="mode-card" type="button" (click)="openModeSheet()">
+                <div class="mode-card__left">
+                  <span class="mode-card__label">Active Mode</span>
+                  <strong class="mode-card__title">{{ selectedModeLabel() }}</strong>
+                </div>
+                <div class="mode-card__right">
+                  <span>Change</span>
+                  <ion-icon name="chevron-forward-outline"></ion-icon>
+                </div>
+              </button>
+
+              <div class="quick-stats">
+                <article class="quick-stat">
+                  <ion-icon name="analytics-outline"></ion-icon>
+                  <div>
+                    <span class="quick-stat__label">Accuracy</span>
+                    <strong class="quick-stat__value">{{ accuracyPercent() }}%</strong>
+                  </div>
+                </article>
+                <article class="quick-stat">
+                  <ion-icon name="time-outline"></ion-icon>
+                  <div>
+                    <span class="quick-stat__label">Sessions</span>
+                    <strong class="quick-stat__value">{{ pastSessionsTotal() }}</strong>
+                  </div>
+                </article>
+              </div>
+
+              @if (micError()) {
+                <div class="inline-alert inline-alert--error">
+                  {{ micError() }}
+                </div>
+              }
             }
 
             <!-- ─── Active / paused session state ─── -->
@@ -101,7 +105,7 @@
                 </div>
                 <p class="wave-caption">
                   @if (!isMonitoring()) {
-                    Session is paused. Resume to keep building context.
+                    Session paused — resume to keep building context.
                   } @else if (selectedMode() === 'debate_live') {
                     Cross-checking rolling windows as you speak.
                   } @else if (selectedMode() === 'conversation_score') {
@@ -125,8 +129,8 @@
 
               <section class="transcript-panel">
                 <div class="section-heading">
-                  <h2>Real-time Transcript</h2>
-                  <span>{{ transcriptSegments().length }} segments</span>
+                  <h2>Transcript</h2>
+                  <span>{{ transcriptSegments().length }}</span>
                 </div>
 
                 @if (transcriptFeed().length > 0) {
@@ -134,7 +138,7 @@
                     @for (segment of transcriptFeed(); track segment.segmentId) {
                       <article class="transcript-entry">
                         <p class="transcript-meta">
-                          {{ segment.speakerLabel || 'Live window' }} &bull; {{ segment.startedAt | date: 'shortTime' }}
+                          {{ segment.speakerLabel || 'Live' }} &bull; {{ segment.startedAt | date: 'shortTime' }}
                         </p>
                         <p class="transcript-body">{{ segment.text }}</p>
                       </article>
@@ -178,6 +182,7 @@
 
               <button
                 class="primary-cta primary-cta--floating"
+                [class.primary-cta--stop]="isMonitoring()"
                 type="button"
                 [disabled]="isBusy()"
                 (click)="toggleMonitoring()">
@@ -194,14 +199,14 @@
             <div class="view-header">
               <h1>Insights</h1>
               <p>
-                {{ hasSessionData() ? 'Current conversation summary' : 'No monitored session yet. Start a live session to populate insights.' }}
+                {{ hasSessionData() ? 'Current conversation summary' : 'No session yet — start a live session to populate insights.' }}
               </p>
             </div>
 
             @if (isProcessingFinal()) {
               <div class="processing-banner">
                 <ion-spinner name="crescent"></ion-spinner>
-                <span>Processing final claims — corrections may still arrive…</span>
+                <span>Processing final claims...</span>
               </div>
             }
 
@@ -243,7 +248,7 @@
 
                   <div class="snapshot-metrics">
                     <div>
-                      <span>Total Duration</span>
+                      <span>Duration</span>
                       <strong>{{ sessionMetrics().duration }}</strong>
                     </div>
                     <div>
@@ -262,8 +267,8 @@
                   <h2>Accuracy Rate</h2>
                   <div class="accuracy-ring">
                     <svg viewBox="0 0 80 80">
-                      <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(0,51,69,0.08)" stroke-width="7"/>
-                      <circle cx="40" cy="40" r="34" fill="none" stroke="var(--rt-primary)" stroke-width="7"
+                      <circle cx="40" cy="40" r="34" fill="none" stroke-width="7"/>
+                      <circle cx="40" cy="40" r="34" fill="none" stroke="var(--rt-secondary)" stroke-width="7"
                         stroke-linecap="round"
                         [style.stroke-dasharray]="accuracyRingDash()"
                         stroke-dashoffset="0"
@@ -272,14 +277,14 @@
                     <span class="accuracy-ring__label">{{ accuracyPercent() }}%</span>
                   </div>
                   <p>
-                    {{ accuracyPercent() === 100 ? 'All claims verified as accurate so far.' : accuracyPercent() + '% of statements passed fact-check without correction.' }}
+                    {{ accuracyPercent() === 100 ? 'All claims verified as accurate so far.' : accuracyPercent() + '% of statements passed fact-check.' }}
                   </p>
                 </article>
               </div>
 
               <section class="stack-panel">
                 <div class="section-heading">
-                  <h2>Correction Registry</h2>
+                  <h2>Corrections</h2>
                   <span>{{ archiveFeed().length }}</span>
                 </div>
 
@@ -288,7 +293,7 @@
                     @for (intervention of archiveFeed(); track intervention.messageId) {
                       <article class="registry-card">
                         <div class="registry-meta">
-                          <span>Timestamp {{ intervention.issuedAt | date: 'shortTime' }}</span>
+                          <span>{{ intervention.issuedAt | date: 'shortTime' }}</span>
                           <ion-icon name="warning-outline"></ion-icon>
                         </div>
                         <div class="registry-block">
@@ -301,7 +306,7 @@
                             <p>{{ intervention.correction }}</p>
                           </div>
                           <div class="registry-footer">
-                            <span>Sources {{ intervention.sources.length }}</span>
+                            <span>{{ intervention.sources.length }} source{{ intervention.sources.length === 1 ? '' : 's' }}</span>
                             <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
                           </div>
                         </div>
@@ -310,7 +315,7 @@
                   </div>
                 } @else {
                   <div class="empty-panel">
-                    No correction registry yet. False or misleading claims will populate this view.
+                    No corrections yet. False or misleading claims will appear here.
                   </div>
                 }
               </section>
@@ -320,14 +325,14 @@
             @if (insightsSubTab() === 'topics') {
               <section class="stack-panel">
                 <div class="section-heading">
-                  <h2>Topic Breakdown</h2>
+                  <h2>Topics</h2>
                   <span>{{ sessionTopics().length }}</span>
                 </div>
 
                 @if (topicsLoading()) {
                   <div class="empty-panel empty-panel--waiting">
                     <ion-spinner name="crescent"></ion-spinner>
-                    Loading topic analysis…
+                    Loading topics...
                   </div>
                 } @else if (sessionTopics().length > 0) {
                   <div class="topic-grid">
@@ -349,7 +354,7 @@
                   @if (selectedTopicSlug()) {
                     <div class="topic-detail">
                       <div class="topic-detail__header">
-                        <h3>{{ topicLabel(selectedTopicSlug()!) }} — Misinformation</h3>
+                        <h3>{{ topicLabel(selectedTopicSlug()!) }}</h3>
                         <button class="text-link-button" type="button" (click)="clearSelectedTopic()">Close</button>
                       </div>
                       @if (topicMisinformation().length > 0) {
@@ -374,13 +379,13 @@
                           }
                         </div>
                       } @else {
-                        <div class="empty-panel">No misinformation recorded for this topic yet.</div>
+                        <div class="empty-panel">No misinformation recorded for this topic.</div>
                       }
                     </div>
                   }
                 } @else {
                   <div class="empty-panel">
-                    Topics will appear after completing a session with fact-checked claims.
+                    Topics appear after completing a session with fact-checked claims.
                   </div>
                 }
               </section>
@@ -406,7 +411,7 @@
                 @if (reflectionLoading()) {
                   <div class="empty-panel empty-panel--waiting">
                     <ion-spinner name="crescent"></ion-spinner>
-                    Loading reflection…
+                    Loading reflection...
                   </div>
                 } @else if (monthlyReflection()) {
                   <article class="reflection-card">
@@ -464,7 +469,7 @@
                   </article>
                 } @else {
                   <div class="empty-panel">
-                    No reflection data for this month. Complete sessions to generate your monthly performance summary.
+                    No reflection data for this month. Complete sessions to generate your monthly summary.
                   </div>
                 }
               </section>
@@ -481,7 +486,7 @@
                 @if (historyLoading()) {
                   <div class="empty-panel empty-panel--waiting">
                     <ion-spinner name="crescent"></ion-spinner>
-                    Loading session history…
+                    Loading history...
                   </div>
                 } @else if (pastSessions().length > 0) {
                   <div class="history-list">
@@ -509,7 +514,7 @@
                           </div>
                           <div class="history-metric">
                             <span>Accuracy</span>
-                            <strong>{{ session.accuracyScore != null ? session.accuracyScore + '%' : '—' }}</strong>
+                            <strong>{{ session.accuracyScore != null ? session.accuracyScore + '%' : '--' }}</strong>
                           </div>
                         </div>
                       </article>
@@ -517,7 +522,7 @@
                   </div>
                 } @else {
                   <div class="empty-panel">
-                    No past sessions found. Complete a monitoring session to see it here.
+                    No past sessions found. Complete a session to see it here.
                   </div>
                 }
               </section>
@@ -533,7 +538,6 @@
               <p>Global accuracy leaderboard powered by Real Talk sessions.</p>
             </div>
 
-            <!-- Sub-tab pills -->
             <div class="sub-tab-bar">
               <button
                 class="sub-tab-pill"
@@ -564,10 +568,9 @@
             @if (rankingsLoading()) {
               <div class="empty-panel empty-panel--waiting">
                 <ion-spinner name="crescent"></ion-spinner>
-                Loading leaderboard…
+                Loading leaderboard...
               </div>
             } @else {
-              <!-- Global Leaderboard -->
               @if (rankingsSubTab() === 'global') {
                 @if (globalLeaderboard().length > 0) {
                   <div class="leaderboard-list">
@@ -593,12 +596,11 @@
                   </div>
                 } @else {
                   <div class="empty-panel">
-                    No rankings yet. Be the first to complete a session and appear on the leaderboard.
+                    No rankings yet. Complete a session to appear on the leaderboard.
                   </div>
                 }
               }
 
-              <!-- School Leaderboard -->
               @if (rankingsSubTab() === 'schools') {
                 @if (schoolLeaderboard().length > 0) {
                   <div class="leaderboard-list">
@@ -624,12 +626,11 @@
                   </div>
                 } @else {
                   <div class="empty-panel">
-                    School rankings require at least 5 public users per institution. Set your school in Profile and make your profile public to participate.
+                    School rankings require at least 5 public users per institution.
                   </div>
                 }
               }
 
-              <!-- Major Leaderboard -->
               @if (rankingsSubTab() === 'majors') {
                 @if (majorLeaderboard().length > 0) {
                   <div class="leaderboard-list">
@@ -655,7 +656,7 @@
                   </div>
                 } @else {
                   <div class="empty-panel">
-                    Major rankings require at least 5 public users per field. Set your major in Profile and make your profile public to participate.
+                    Major rankings require at least 5 public users per field.
                   </div>
                 }
               }
@@ -671,7 +672,6 @@
               <p>Manage your account and preferences.</p>
             </div>
 
-            <!-- ─── Signed In (Clerk) ─── -->
             @if (auth.isSignedIn()) {
               <article class="profile-card">
                 @if (auth.avatarUrl()) {
@@ -687,7 +687,6 @@
                 </div>
               </article>
 
-              <!-- ─── Profile Details (editable) ─── -->
               @if (!isEditingProfile()) {
                 <section class="settings-group">
                   <div class="settings-heading-row">
@@ -725,7 +724,7 @@
                     <article class="settings-item">
                       <div>
                         <p class="settings-label">Leaderboard</p>
-                        <p class="settings-description">{{ auth.profileMeta().leaderboardVisibility === 'public' ? 'Public — visible on rankings' : 'Private — hidden from rankings' }}</p>
+                        <p class="settings-description">{{ auth.profileMeta().leaderboardVisibility === 'public' ? 'Public' : 'Private' }}</p>
                       </div>
                     </article>
                   </div>
@@ -781,7 +780,7 @@
               <div class="profile-actions-row">
                 <button class="secondary-cta secondary-cta--full" type="button" (click)="openUserProfile()">
                   <ion-icon name="settings-outline"></ion-icon>
-                  <span>Manage Account</span>
+                  <span>Account</span>
                 </button>
 
                 <button class="secondary-cta secondary-cta--full secondary-cta--danger" type="button" (click)="signOut()">
@@ -791,14 +790,13 @@
               </div>
             }
 
-            <!-- ─── Signed Out (Clerk) ─── -->
             @if (!auth.isSignedIn()) {
               <article class="auth-card">
                 <div class="auth-card__header">
                   <ion-icon name="person-outline"></ion-icon>
                   <div>
                     <h2>Welcome to Real Talk</h2>
-                    <p>Sign in with Google, X, or email to sync sessions and track your progress.</p>
+                    <p>Sign in to sync sessions and track your progress.</p>
                   </div>
                 </div>
 
@@ -832,12 +830,6 @@
                     <p class="settings-description">4-second rolling windows with 2-second overlap</p>
                   </div>
                 </article>
-                <article class="settings-item">
-                  <div>
-                    <p class="settings-label">Preferred language</p>
-                    <p class="settings-description">Auto-detect from device</p>
-                  </div>
-                </article>
               </div>
             </section>
 
@@ -847,7 +839,7 @@
                 <article class="settings-item">
                   <div>
                     <p class="settings-label">Version</p>
-                    <p class="settings-description">Real Talk v2.0.0</p>
+                    <p class="settings-description">Real Talk v2.1.0</p>
                   </div>
                 </article>
                 <article class="settings-item">
@@ -862,59 +854,64 @@
         }
       </main>
 
-      <!-- ═══════════════════ CORRECTION OVERLAY ═══════════════════ -->
+      <!-- ═══════════════════ CORRECTION TOAST ═══════════════════ -->
       @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
-        <div class="overlay-shell">
-          <div class="correction-modal">
-            <div class="modal-header">
-              <div class="modal-lockup">
-                <div class="modal-icon">
-                  <ion-icon name="warning-outline"></ion-icon>
-                </div>
-                <div>
-                  <p class="modal-title">Correction Alert</p>
-                  <p class="modal-subtitle">Verification Engine Active</p>
-                </div>
-              </div>
-              <button class="icon-button icon-button--ghost" type="button" (click)="closeCorrectionOverlay()">
-                <ion-icon name="close-outline"></ion-icon>
+        <div class="correction-toast">
+          <div class="correction-toast__header">
+            <div class="correction-toast__badge">
+              <ion-icon name="warning-outline"></ion-icon>
+              <span>Correction</span>
+            </div>
+            <button class="correction-toast__dismiss" type="button" (click)="closeCorrectionOverlay()">
+              <ion-icon name="close-outline"></ion-icon>
+            </button>
+          </div>
+          <p class="correction-toast__claim">"{{ intervention.claimText }}"</p>
+          <p class="correction-toast__correction">{{ intervention.correction }}</p>
+          <div class="correction-toast__actions">
+            <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
+            @if (intervention.sources[0]) {
+              <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
+                {{ sourceHost(intervention.sources[0].url) }}
               </button>
-            </div>
-
-            <div class="modal-body">
-              <div class="modal-block">
-                <p class="modal-kicker">Detected Claim</p>
-                <blockquote class="claim-quote">"{{ intervention.claimText }}"</blockquote>
-              </div>
-
-              <div class="modal-block">
-                <p class="modal-kicker">Factual Correction</p>
-                <p class="modal-correction">{{ intervention.correction }}</p>
-                <p class="modal-support">
-                  {{ intervention.sources.length }} supporting source{{ intervention.sources.length === 1 ? '' : 's' }} linked to this intervention.
-                </p>
-                <div class="modal-meta-row">
-                  <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
-                  @if (intervention.sources[0]) {
-                    <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
-                      {{ sourceHost(intervention.sources[0].url) }}
-                    </button>
-                  }
-                </div>
-              </div>
-            </div>
-
-            <div class="modal-actions">
-              <button class="secondary-cta" type="button" (click)="closeCorrectionOverlay()">Dismiss</button>
-              <button class="primary-cta primary-cta--inline" type="button" (click)="speakLatestIntervention()">
-                <ion-icon name="volume-high-outline"></ion-icon>
-                <span>Speak Correction</span>
-              </button>
-            </div>
+            }
+            <button class="correction-toast__speak" type="button" (click)="speakLatestIntervention()">
+              <ion-icon name="volume-high-outline"></ion-icon>
+              <span>Speak</span>
+            </button>
           </div>
         </div>
       }
     </div>
+
+    <!-- ═══════════════════ MODE SELECTOR BOTTOM SHEET ═══════════════════ -->
+    @if (isModeSheetOpen()) {
+      <div class="sheet-backdrop" (click)="closeModeSheet()"></div>
+      <div class="sheet-panel">
+        <div class="sheet-handle"><span></span></div>
+        <p class="sheet-title">Select Mode</p>
+        <div class="sheet-list">
+          @for (opt of sessionModes; track opt.mode) {
+            <button
+              class="sheet-option"
+              [class.is-selected]="selectedMode() === opt.mode"
+              type="button"
+              (click)="selectSessionMode(opt.mode); closeModeSheet()">
+              <div class="sheet-option__icon">
+                <ion-icon [name]="opt.icon"></ion-icon>
+              </div>
+              <div class="sheet-option__text">
+                <strong>{{ opt.title }}</strong>
+                <span>{{ opt.description }}</span>
+              </div>
+              @if (selectedMode() === opt.mode) {
+                <ion-icon class="sheet-option__check" name="checkmark-circle-outline"></ion-icon>
+              }
+            </button>
+          }
+        </div>
+      </div>
+    }
 
     <!-- ═══════════════════ FIXED BOTTOM NAVIGATION ═══════════════════ -->
     <nav class="bottom-nav">
@@ -929,10 +926,6 @@
       <button class="nav-button" [class.is-active]="activeTab() === 'rankings'" (click)="selectTab('rankings')" type="button">
         <ion-icon name="trophy-outline"></ion-icon>
         <span>Rankings</span>
-      </button>
-      <button class="nav-button" [class.is-active]="activeTab() === 'profile'" (click)="selectTab('profile')" type="button">
-        <ion-icon name="person-outline"></ion-icon>
-        <span>Profile</span>
       </button>
     </nav>
   </div>

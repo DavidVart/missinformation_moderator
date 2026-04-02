@@ -152,6 +152,7 @@ export class AppComponent implements OnDestroy {
   protected readonly transportStatus = signal<"connecting" | "connected" | "offline">("connecting");
   protected readonly activeTab = signal<AppTab>("live");
   protected readonly isCorrectionOpen = signal(true);
+  protected readonly isModeSheetOpen = signal(false);
   private correctionDismissTimer: ReturnType<typeof setTimeout> | null = null;
   protected readonly activityLevel = signal(0);
   protected readonly ambientTick = signal(0);
@@ -219,6 +220,10 @@ export class AppComponent implements OnDestroy {
   protected readonly prefAutoSpeak = signal(this.loadPref("rt-auto-speak", false));
   protected readonly prefLanguage = signal(this.loadPref("rt-language", "auto"));
 
+  protected readonly selectedModeLabel = computed(() => {
+    const mode = this.selectedMode();
+    return this.sessionModes.find((m) => m.mode === mode)?.title ?? mode;
+  });
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
   protected readonly modeShowsRealtimeOverlay = computed(() =>
@@ -496,6 +501,9 @@ export class AppComponent implements OnDestroy {
     );
 
     this.socketService.connect();
+
+    // Pre-load session count for quick stats on landing
+    void this.loadPastSessions();
   }
 
   protected selectTab(tab: AppTab) {
@@ -682,6 +690,14 @@ export class AppComponent implements OnDestroy {
   }
 
   // ───────────────────── Session Modes ─────────────────────
+
+  protected openModeSheet() {
+    this.isModeSheetOpen.set(true);
+  }
+
+  protected closeModeSheet() {
+    this.isModeSheetOpen.set(false);
+  }
 
   protected selectSessionMode(mode: SessionMode) {
     this.selectedMode.set(mode);

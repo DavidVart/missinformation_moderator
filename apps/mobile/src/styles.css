@@ -5,20 +5,34 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family: "Inter", "Avenir Next", "Segoe UI", sans-serif;
-  --rt-bg: #f8f9fc;
-  --rt-surface: #ffffff;
-  --rt-surface-soft: #f2f4f6;
-  --rt-surface-muted: #eceef0;
-  --rt-primary: #004b63;
-  --rt-primary-strong: #003345;
-  --rt-secondary: #00838f;
-  --rt-secondary-soft: #8feefc;
-  --rt-tertiary: #972f03;
-  --rt-text: #191c1e;
-  --rt-muted: #5f6b73;
-  --rt-muted-strong: #405055;
+
+  /* ── Dark navy palette ── */
+  --rt-bg: #0b1120;
+  --rt-surface: rgba(255, 255, 255, 0.06);
+  --rt-surface-soft: rgba(255, 255, 255, 0.04);
+  --rt-surface-muted: rgba(255, 255, 255, 0.08);
+  --rt-surface-raised: rgba(255, 255, 255, 0.09);
+
+  /* ── Brand accent ── */
+  --rt-primary: #60a5fa;
+  --rt-primary-strong: #93c5fd;
+  --rt-secondary: #38bdf8;
+  --rt-secondary-soft: rgba(56, 189, 248, 0.15);
+  --rt-tertiary: #f87171;
+
+  /* ── Text ── */
+  --rt-text: #f1f5f9;
+  --rt-text-secondary: #cbd5e1;
+  --rt-muted: #64748b;
+  --rt-muted-strong: #94a3b8;
+
+  /* ── Semantic ── */
+  --rt-success: #4ade80;
+  --rt-warning: #fbbf24;
+  --rt-danger: #f87171;
+  --rt-border: rgba(255, 255, 255, 0.08);
 }
 
 html,
