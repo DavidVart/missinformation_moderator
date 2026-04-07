@@ -1,46 +1,15 @@
 import {
-  CONSUMER_GROUPS,
-  STREAM_NAMES,
-  baseServiceEnvSchema,
-  createEnv,
-  createJsonConsumer,
-  createRedisConnection,
-  xAddJson
-} from "@project-veritas/config";
-import {
-  claimVerificationResultSchema,
-  cohortLeaderboardResponseSchema,
   monthlyReflectionSchema,
-  parseStreamPayload,
-  sessionEventSchema,
   sessionScoreSchema,
-  topicMisinformationPointSchema,
   topicSlugSchema,
   topicSummarySchema,
-  transcriptSegmentSchema,
   type ClaimVerificationResult,
   type TopicSlug
 } from "@project-veritas/contracts";
-import { createHttpLogger, createLogger } from "@project-veritas/observability";
-import cors from "cors";
-import express from "express";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { v4 as uuidv4 } from "uuid";
-import { z } from "zod";
-
-const env = createEnv({
-  ...baseServiceEnvSchema.shape,
-  PORT: z.coerce.number().int().positive().default(4006),
-  POSTGRES_URL: z.string().default("postgresql://postgres:postgres@localhost:5432/veritas"),
-  API_PREFIX: z.string().default("/api/analytics")
-});
-
-const logger = createLogger("analytics-service", env.LOG_LEVEL);
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-app.use(createHttpLogger("analytics-service", env.LOG_LEVEL));
+import type { z } from "zod";
+import type { transcriptSegmentSchema } from "@project-veritas/contracts";
 
 const TOPIC_DEFINITIONS: Array<{
   slug: TopicSlug;
@@ -69,7 +38,7 @@ function canonicalizeClaim(text: string) {
     .join(" ");
 }
 
-function parseBearerToken(headerValue: string | undefined) {
+export function parseBearerToken(headerValue: string | undefined) {
   if (!headerValue) {
     return null;
   }
@@ -82,7 +51,7 @@ function parseBearerToken(headerValue: string | undefined) {
   return token.trim();
 }
 
-async function resolveUserFromAuthSession(pool: Pool, authorizationHeader: string | undefined) {
+export async function resolveUserFromAuthSession(pool: Pool, authorizationHeader: string | undefined) {
   const accessToken = parseBearerToken(authorizationHeader);
   if (!accessToken) {
     return null;
@@ -111,7 +80,7 @@ async function resolveUserFromAuthSession(pool: Pool, authorizationHeader: strin
   return result.rows[0] ?? null;
 }
 
-function classifyTopic(text: string) {
+export function classifyTopic(text: string) {
   const normalized = normalizeText(text);
   let best = { slug: "general" as TopicSlug, label: "General", score: 0, matches: [] as string[] };
 
@@ -153,7 +122,7 @@ function mergeHighlights(currentValue: unknown, additions: string[]) {
   return [...new Set([...current, ...additions])].slice(0, 5);
 }
 
-async function bootstrapAnalyticsSchema(pool: Pool) {
+export async function bootstrapAnalyticsSchema(pool: Pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS session_scores (
       session_id TEXT PRIMARY KEY,
@@ -305,29 +274,20 @@ async function upsertSessionTopic(pool: Pool, sessionId: string, userId: string 
   );
 }
 
-async function persistTranscriptTopic(pool: Pool, segment: z.infer<typeof transcriptSegmentSchema>) {
+export async function persistTranscriptTopic(pool: Pool, segment: z.infer<typeof transcriptSegmentSchema>) {
   const topic = classifyTopic(segment.text);
   await upsertSessionTopic(pool, segment.sessionId, segment.userId, topic, { addSegments: 1 });
   return topic;
 }
 
-/**
- * Ensure a minimal user + profile row exists for a given userId so that
- * leaderboard JOINs work even when the user authenticated via Clerk
- * (which bypasses the identity service's magic-link flow).
- */
-async function ensureUserProfile(pool: Pool, userId: string) {
+export async function ensureUserProfile(pool: Pool, userId: string) {
   const placeholderEmail = `${userId}@clerk.user`;
 
-  // Check if this user already exists — skip the insert entirely to avoid
-  // email UNIQUE constraint collisions with stale identity-service rows.
   const existing = await pool.query(`SELECT 1 FROM users WHERE user_id = $1`, [userId]);
   if (existing.rowCount && existing.rowCount > 0) {
     return;
   }
 
-  // Only insert if no email collision exists (a proper sync via /profile/sync
-  // handles the collision by deleting the stale row first).
   const emailConflict = await pool.query(`SELECT 1 FROM users WHERE email = $1`, [placeholderEmail]);
   if (emailConflict.rowCount && emailConflict.rowCount > 0) {
     return;
@@ -352,8 +312,7 @@ async function ensureUserProfile(pool: Pool, userId: string) {
   );
 }
 
-async function recomputeSessionScore(pool: Pool, result: ClaimVerificationResult) {
-  // Auto-create user/profile for Clerk-authenticated users so leaderboard JOINs work
+export async function recomputeSessionScore(pool: Pool, result: ClaimVerificationResult) {
   if (result.userId) {
     await ensureUserProfile(pool, result.userId);
   }
@@ -436,7 +395,7 @@ async function recomputeSessionScore(pool: Pool, result: ClaimVerificationResult
   return score;
 }
 
-async function persistClaimAnalytics(pool: Pool, result: ClaimVerificationResult) {
+export async function persistClaimAnalytics(pool: Pool, result: ClaimVerificationResult) {
   const topic = classifyTopic(`${result.claimText} ${result.correction}`);
   const canonicalClaim = canonicalizeClaim(result.claimText);
   const repeats = await pool.query(
@@ -552,7 +511,7 @@ async function computeRankDelta(pool: Pool, userId: string, month: string) {
   return previousRank - currentRank;
 }
 
-async function generateMonthlyReflection(pool: Pool, userId: string, month: string) {
+export async function generateMonthlyReflection(pool: Pool, userId: string, month: string) {
   const { start, end } = monthBounds(month);
   const previousStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
   const previousEnd = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
@@ -744,7 +703,7 @@ async function generateMonthlyReflection(pool: Pool, userId: string, month: stri
   return reflection;
 }
 
-async function refreshSnapshots(pool: Pool) {
+export async function refreshSnapshots(pool: Pool) {
   await pool.query("DELETE FROM leaderboard_snapshots");
 
   const globalRows = await pool.query(
@@ -791,383 +750,3 @@ async function refreshSnapshots(pool: Pool) {
     );
   }
 }
-
-async function bootstrap() {
-  const pool = new Pool({
-    connectionString: env.POSTGRES_URL,
-    ssl: { rejectUnauthorized: false }
-  });
-  await bootstrapAnalyticsSchema(pool);
-  const redis = await createRedisConnection(env.REDIS_URL);
-  const sessionConsumer = await createRedisConnection(env.REDIS_URL);
-  const transcriptConsumer = await createRedisConnection(env.REDIS_URL);
-  const verdictConsumer = await createRedisConnection(env.REDIS_URL);
-
-  app.get("/health", (_request, response) => {
-    response.json({
-      status: "ok",
-      service: "analytics"
-    });
-  });
-
-  /**
-   * Sync profile data from Clerk-authenticated users into the profiles table
-   * so leaderboard queries can display names, schools, majors, etc.
-   */
-  app.put(`${env.API_PREFIX}/profile/sync`, async (request, response) => {
-    const body = z.object({
-      userId: z.string().min(1),
-      displayName: z.string().min(1),
-      email: z.string().email().optional(),
-      avatar: z.string().optional(),
-      school: z.string().optional(),
-      major: z.string().optional(),
-      country: z.string().optional(),
-      bio: z.string().max(280).optional(),
-      leaderboardVisibility: z.enum(["public", "private"]).default("private")
-    }).safeParse(request.body);
-
-    if (!body.success) {
-      response.status(400).json({ message: "Invalid body", errors: body.error.issues });
-      return;
-    }
-
-    const { userId, displayName, email, avatar, school, major, country, bio, leaderboardVisibility } = body.data;
-    const resolvedEmail = email ?? `${userId}@clerk.user`;
-
-    // Remove any stale identity-service user that holds the same email
-    // but a different user_id (email has a UNIQUE constraint on users table).
-    await pool.query(
-      `DELETE FROM auth_sessions WHERE user_id IN (SELECT user_id FROM users WHERE email = $1 AND user_id != $2)`,
-      [resolvedEmail, userId]
-    );
-    await pool.query(
-      `DELETE FROM profiles WHERE user_id IN (SELECT user_id FROM users WHERE email = $1 AND user_id != $2)`,
-      [resolvedEmail, userId]
-    );
-    await pool.query(
-      `DELETE FROM users WHERE email = $1 AND user_id != $2`,
-      [resolvedEmail, userId]
-    );
-
-    await pool.query(
-      `
-        INSERT INTO users (user_id, email, created_at, updated_at)
-        VALUES ($1, $2, NOW(), NOW())
-        ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, updated_at = NOW()
-      `,
-      [userId, resolvedEmail]
-    );
-
-    await pool.query(
-      `
-        INSERT INTO profiles (user_id, display_name, avatar, school, major, country, bio, leaderboard_visibility, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
-        ON CONFLICT (user_id) DO UPDATE SET
-          display_name = EXCLUDED.display_name,
-          avatar = EXCLUDED.avatar,
-          school = EXCLUDED.school,
-          major = EXCLUDED.major,
-          country = EXCLUDED.country,
-          bio = EXCLUDED.bio,
-          leaderboard_visibility = EXCLUDED.leaderboard_visibility,
-          updated_at = NOW()
-      `,
-      [userId, displayName, avatar ?? null, school ?? null, major ?? null, country ?? null, bio ?? null, leaderboardVisibility]
-    );
-
-    response.json({ ok: true });
-  });
-
-  app.get(`${env.API_PREFIX}/reflections/monthly`, async (request, response) => {
-    // Support both Bearer token auth (identity service) and userId query param (Clerk)
-    let userId: string | null = null;
-
-    const session = await resolveUserFromAuthSession(pool, request.header("authorization"));
-    if (session) {
-      userId = String(session.user_id);
-    } else if (typeof request.query.userId === "string" && request.query.userId.length > 0) {
-      userId = request.query.userId;
-    }
-
-    if (!userId) {
-      response.status(401).json({ message: "Unauthorized — provide Bearer token or userId query parameter" });
-      return;
-    }
-
-    const month = z.string().regex(/^\d{4}-\d{2}$/).parse(
-      typeof request.query.month === "string"
-        ? request.query.month
-        : new Date().toISOString().slice(0, 7)
-    );
-
-    const reflection = await generateMonthlyReflection(pool, userId, month);
-    response.json(reflection);
-  });
-
-  app.get(`${env.API_PREFIX}/leaderboards/global`, async (_request, response) => {
-    await refreshSnapshots(pool);
-    const result = await pool.query(
-      `
-        SELECT user_id, display_name, avatar, school, major, score, sessions_count, corrections_count, rank
-        FROM leaderboard_snapshots
-        WHERE scope = 'global'
-        ORDER BY rank ASC
-      `
-    );
-
-    response.json({
-      scope: "global",
-      minimumCohortMet: true,
-      entries: result.rows.map((row) => ({
-        rank: Number(row.rank),
-        userId: String(row.user_id),
-        displayName: String(row.display_name),
-        avatar: row.avatar ? String(row.avatar) : undefined,
-        school: row.school ? String(row.school) : undefined,
-        major: row.major ? String(row.major) : undefined,
-        score: Number(Number(row.score).toFixed(2)),
-        sessionsCount: Number(row.sessions_count),
-        correctionsCount: Number(row.corrections_count)
-      }))
-    });
-  });
-
-  app.get(`${env.API_PREFIX}/leaderboards/schools`, async (_request, response) => {
-    const result = await pool.query(
-      `
-        SELECT
-          profiles.school AS label,
-          AVG(session_scores.accuracy_score) AS score,
-          COUNT(*)::int AS sessions_count,
-          SUM(session_scores.false_claim_count + session_scores.misleading_claim_count)::int AS corrections_count,
-          COUNT(DISTINCT sessions.user_id)::int AS public_user_count
-        FROM session_scores
-        JOIN sessions ON sessions.session_id = session_scores.session_id
-        JOIN profiles ON profiles.user_id = sessions.user_id
-        WHERE
-          session_scores.eligible_for_leaderboard = TRUE
-          AND profiles.leaderboard_visibility = 'public'
-          AND COALESCE(NULLIF(TRIM(profiles.school), ''), '') != ''
-        GROUP BY profiles.school
-        HAVING COUNT(DISTINCT sessions.user_id) >= 5
-        ORDER BY AVG(session_scores.accuracy_score) DESC, COUNT(*) DESC
-        LIMIT 20
-      `
-    );
-
-    response.json(cohortLeaderboardResponseSchema.parse({
-      scope: "school",
-      minimumCohortMet: result.rows.length > 0,
-      entries: result.rows.map((row, index) => ({
-        rank: index + 1,
-        label: String(row.label),
-        score: Number(Number(row.score).toFixed(2)),
-        sessionsCount: Number(row.sessions_count),
-        correctionsCount: Number(row.corrections_count),
-        publicUserCount: Number(row.public_user_count)
-      }))
-    }));
-  });
-
-  app.get(`${env.API_PREFIX}/leaderboards/majors`, async (_request, response) => {
-    const result = await pool.query(
-      `
-        SELECT
-          profiles.major AS label,
-          AVG(session_scores.accuracy_score) AS score,
-          COUNT(*)::int AS sessions_count,
-          SUM(session_scores.false_claim_count + session_scores.misleading_claim_count)::int AS corrections_count,
-          COUNT(DISTINCT sessions.user_id)::int AS public_user_count
-        FROM session_scores
-        JOIN sessions ON sessions.session_id = session_scores.session_id
-        JOIN profiles ON profiles.user_id = sessions.user_id
-        WHERE
-          session_scores.eligible_for_leaderboard = TRUE
-          AND profiles.leaderboard_visibility = 'public'
-          AND COALESCE(NULLIF(TRIM(profiles.major), ''), '') != ''
-        GROUP BY profiles.major
-        HAVING COUNT(DISTINCT sessions.user_id) >= 5
-        ORDER BY AVG(session_scores.accuracy_score) DESC, COUNT(*) DESC
-        LIMIT 20
-      `
-    );
-
-    response.json(cohortLeaderboardResponseSchema.parse({
-      scope: "major",
-      minimumCohortMet: result.rows.length > 0,
-      entries: result.rows.map((row, index) => ({
-        rank: index + 1,
-        label: String(row.label),
-        score: Number(Number(row.score).toFixed(2)),
-        sessionsCount: Number(row.sessions_count),
-        correctionsCount: Number(row.corrections_count),
-        publicUserCount: Number(row.public_user_count)
-      }))
-    }));
-  });
-
-  app.get(`${env.API_PREFIX}/leaderboards/topics/:topicSlug`, async (request, response) => {
-    const topicSlug = topicSlugSchema.parse(request.params.topicSlug);
-    const result = await pool.query(
-      `
-        SELECT
-          sessions.user_id,
-          profiles.display_name,
-          profiles.avatar,
-          profiles.school,
-          profiles.major,
-          AVG(session_topics.accuracy_score) AS score,
-          COUNT(*)::int AS sessions_count,
-          SUM(session_topics.misinformation_count)::int AS corrections_count
-        FROM session_topics
-        JOIN sessions ON sessions.session_id = session_topics.session_id
-        JOIN profiles ON profiles.user_id = sessions.user_id
-        WHERE
-          session_topics.topic_slug = $1
-          AND profiles.leaderboard_visibility = 'public'
-          AND sessions.mode IN ('debate_live', 'conversation_score')
-        GROUP BY sessions.user_id, profiles.display_name, profiles.avatar, profiles.school, profiles.major
-        ORDER BY AVG(session_topics.accuracy_score) DESC, COUNT(*) DESC
-        LIMIT 25
-      `,
-      [topicSlug]
-    );
-
-    response.json({
-      scope: "topic",
-      scopeValue: topicSlug,
-      minimumCohortMet: true,
-      entries: result.rows.map((row, index) => ({
-        rank: index + 1,
-        userId: String(row.user_id),
-        displayName: String(row.display_name),
-        avatar: row.avatar ? String(row.avatar) : undefined,
-        school: row.school ? String(row.school) : undefined,
-        major: row.major ? String(row.major) : undefined,
-        score: Number(Number(row.score).toFixed(2)),
-        sessionsCount: Number(row.sessions_count),
-        correctionsCount: Number(row.corrections_count),
-        topicSlug
-      }))
-    });
-  });
-
-  app.get(`${env.API_PREFIX}/topics/session/:sessionId`, async (request, response) => {
-    const result = await pool.query(
-      `
-        SELECT topic_slug, topic_label, segment_count, claim_count, misinformation_count, accuracy_score, highlights_json
-        FROM session_topics
-        WHERE session_id = $1
-        ORDER BY segment_count DESC, claim_count DESC
-      `,
-      [request.params.sessionId]
-    );
-
-    response.json({
-      topics: result.rows.map((row) => topicSummarySchema.parse({
-        topicSlug: topicSlugSchema.parse(String(row.topic_slug)),
-        label: String(row.topic_label),
-        segmentCount: Number(row.segment_count),
-        claimCount: Number(row.claim_count),
-        misinformationCount: Number(row.misinformation_count),
-        accuracyScore: Number(Number(row.accuracy_score).toFixed(2)),
-        highlights: Array.isArray(row.highlights_json) ? row.highlights_json.map(String) : []
-      }))
-    });
-  });
-
-  app.get(`${env.API_PREFIX}/topics/:topicSlug/misinformation`, async (request, response) => {
-    const topicSlug = topicSlugSchema.parse(request.params.topicSlug);
-    const result = await pool.query(
-      `
-        SELECT claims.claim_text, claims.verdict, claims.correction, claims.session_id, claims.checked_at
-        FROM claim_topics
-        JOIN claims ON claims.claim_id = claim_topics.claim_id
-        WHERE claim_topics.topic_slug = $1 AND claims.verdict IN ('false', 'misleading')
-        ORDER BY claims.checked_at DESC
-        LIMIT 25
-      `,
-      [topicSlug]
-    );
-
-    response.json({
-      points: result.rows.map((row) => topicMisinformationPointSchema.parse({
-        claimText: String(row.claim_text),
-        verdict: row.verdict,
-        correction: String(row.correction),
-        sessionId: String(row.session_id),
-        checkedAt: String(row.checked_at)
-      }))
-    });
-  });
-
-  void createJsonConsumer(
-    transcriptConsumer,
-    STREAM_NAMES.transcriptSegments,
-    CONSUMER_GROUPS.analyticsTranscripts,
-    `analytics-transcripts-${uuidv4()}`,
-    (value) => parseStreamPayload(value, transcriptSegmentSchema),
-    async (_id, segment) => {
-      const topic = await persistTranscriptTopic(pool, segment);
-      await xAddJson(redis, STREAM_NAMES.topicsAnalyzed, {
-        sessionId: segment.sessionId,
-        userId: segment.userId,
-        topicSlug: topic.topicSlug,
-        label: topic.label,
-        checkedAt: new Date().toISOString()
-      });
-    }
-  );
-
-  void createJsonConsumer(
-    verdictConsumer,
-    STREAM_NAMES.verdictsCompleted,
-    CONSUMER_GROUPS.analyticsVerdicts,
-    `analytics-verdicts-${uuidv4()}`,
-    (value) => parseStreamPayload(value, claimVerificationResultSchema),
-    async (_id, result) => {
-      const { topic, penalty } = await persistClaimAnalytics(pool, result);
-      const score = await recomputeSessionScore(pool, result);
-      await xAddJson(redis, STREAM_NAMES.topicsAnalyzed, {
-        sessionId: result.sessionId,
-        userId: result.userId,
-        topicSlug: topic.topicSlug,
-        label: topic.label,
-        checkedAt: result.checkedAt
-      });
-      await xAddJson(redis, STREAM_NAMES.sessionScores, score);
-      logger.info({
-        sessionId: result.sessionId,
-        claimId: result.claimId,
-        topicSlug: topic.topicSlug,
-        penalty,
-        accuracyScore: score.accuracyScore
-      }, "Updated analytics score");
-    }
-  );
-
-  void createJsonConsumer(
-    sessionConsumer,
-    STREAM_NAMES.sessions,
-    CONSUMER_GROUPS.analyticsSessions,
-    `analytics-sessions-${uuidv4()}`,
-    (value) => parseStreamPayload(value, sessionEventSchema),
-    async (_id, event) => {
-      if (event.status === "stopped" && event.userId) {
-        const month = event.startedAt.slice(0, 7);
-        const reflection = await generateMonthlyReflection(pool, event.userId, month);
-        await xAddJson(redis, STREAM_NAMES.reflectionsGenerated, reflection);
-      }
-    }
-  );
-
-  app.listen(env.PORT, () => {
-    logger.info({ port: env.PORT }, "Analytics service listening");
-  });
-}
-
-bootstrap().catch((error) => {
-  logger.error({ err: error }, "Analytics service failed to start");
-  process.exit(1);
-});

@@ -9,14 +9,14 @@
 # The blueprint only defines non-secret env vars inline.
 
 services:
-  # ── Ingestion (Socket.io — needs WebSocket support) ──
+  # ── Ingest (Socket.io + Transcription — needs WebSocket support) ──
   - type: web
     name: real-talk-ingestion
     runtime: node
     region: ohio
     plan: starter
-    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/ingestion
-    startCommand: node services/ingestion/dist/index.js
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/ingest
+    startCommand: node services/ingest/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: PORT
@@ -27,8 +27,6 @@ services:
         value: gpt-4o-mini
       - key: WHISPER_MODEL
         value: base
-      - key: INTERVENTION_CONFIDENCE_THRESHOLD
-        value: "0.75"
       - key: SESSION_TTL_SECONDS
         value: "3600"
       - key: LOG_LEVEL
@@ -45,15 +43,50 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: WHISPER_WORKER_URL
+        sync: false
+      - key: TRANSCRIPTION_CONTEXT_SEGMENTS
+        value: "3"
 
-  # ── History (REST API + Postgres persistence) ──
+  # ── Reasoning (Claim detection + verification + notification) ──
   - type: web
-    name: real-talk-history
+    name: real-talk-reasoning
     runtime: node
     region: ohio
     plan: starter
-    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/history
-    startCommand: node --dns-result-order=ipv4first services/history/dist/index.js
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/reasoning
+    startCommand: node services/reasoning/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "4002"
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: INTERVENTION_CONFIDENCE_THRESHOLD
+        value: "0.75"
+      - key: CORS_ORIGIN
+        sync: false
+
+  # ── Data (History + Analytics — REST API + Postgres persistence) ──
+  - type: web
+    name: real-talk-data
+    runtime: node
+    region: ohio
+    plan: starter
+    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/data
+    startCommand: node --dns-result-order=ipv4first services/data/dist/index.js
     healthCheckPath: /health
     envVars:
       - key: PORT
@@ -62,6 +95,10 @@ services:
         value: production
       - key: LOG_LEVEL
         value: info
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
       - key: REDIS_URL
         sync: false
       - key: POSTGRES_URL
@@ -97,113 +134,5 @@ services:
         sync: false
       - key: CLERK_WEBHOOK_SECRET
         sync: false
-      - key: SENTRY_DSN
-        sync: false
-
-  # ── Analytics (REST API + stream consumer) ──
-  - type: web
-    name: real-talk-analytics
-    runtime: node
-    region: ohio
-    plan: starter
-    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/analytics
-    startCommand: node --dns-result-order=ipv4first services/analytics/dist/index.js
-    healthCheckPath: /health
-    envVars:
-      - key: PORT
-        value: "4006"
-      - key: NODE_ENV
-        value: production
-      - key: LOG_LEVEL
-        value: info
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: REDIS_URL
-        sync: false
-      - key: POSTGRES_URL
-        sync: false
-      - key: CORS_ORIGIN
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-
-  # ── Transcription (stream consumer + health endpoint) ──
-  - type: web
-    name: real-talk-transcription
-    runtime: node
-    region: ohio
-    plan: starter
-    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/transcription
-    startCommand: node services/transcription/dist/index.js
-    healthCheckPath: /health
-    envVars:
-      - key: PORT
-        value: "4001"
-      - key: NODE_ENV
-        value: production
-      - key: LOG_LEVEL
-        value: info
-      - key: REDIS_URL
-        sync: false
-      - key: WHISPER_WORKER_URL
-        sync: false
-      - key: WHISPER_MODEL
-        value: base
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-
-  # ── Reasoning (stream consumer + health endpoint) ──
-  - type: web
-    name: real-talk-reasoning
-    runtime: node
-    region: ohio
-    plan: starter
-    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/reasoning
-    startCommand: node services/reasoning/dist/index.js
-    healthCheckPath: /health
-    envVars:
-      - key: PORT
-        value: "4002"
-      - key: NODE_ENV
-        value: production
-      - key: LOG_LEVEL
-        value: info
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: TAVILY_API_KEY
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-
-  # ── Notification (stream consumer + health endpoint) ──
-  - type: web
-    name: real-talk-notification
-    runtime: node
-    region: ohio
-    plan: starter
-    buildCommand: npm install && npm run build -w @project-veritas/contracts && npm run build -w @project-veritas/config && npm run build -w @project-veritas/observability && npm run build -w @project-veritas/notification
-    startCommand: node services/notification/dist/index.js
-    healthCheckPath: /health
-    envVars:
-      - key: PORT
-        value: "4003"
-      - key: NODE_ENV
-        value: production
-      - key: LOG_LEVEL
-        value: info
-      - key: REDIS_URL
-        sync: false
-      - key: CORS_ORIGIN
-        sync: false
-      - key: INTERVENTION_CONFIDENCE_THRESHOLD
-        value: "0.75"
       - key: SENTRY_DSN
         sync: false

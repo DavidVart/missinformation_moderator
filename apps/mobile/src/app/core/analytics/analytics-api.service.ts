@@ -20,7 +20,7 @@ function resolveAnalyticsUrl(): string {
   }
 
   const defaultHost = globalThis.location?.hostname || "localhost";
-  return `http://${defaultHost}:4006/api/analytics`;
+  return `http://${defaultHost}:4004/api/analytics`;
 }
 
 @Injectable({ providedIn: "root" })

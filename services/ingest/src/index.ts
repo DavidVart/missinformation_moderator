@@ -13,6 +13,7 @@ import {
   xAddJson
 } from "@project-veritas/config";
 import {
+  audioChunkEnvelopeSchema,
   interventionMessageSchema,
   parseStreamPayload,
   sessionStartPayloadSchema,
@@ -32,17 +33,27 @@ import {
   createSessionStartedEvent,
   createSessionStoppedEvent
 } from "./session.js";
+import {
+  buildInitialPrompt,
+  createTranscriptSegment,
+  stripOverlappingPrefix,
+  transcribeWithOpenAI,
+  transcribeWithWorker
+} from "./transcription.js";
 
 const env = createEnv({
   ...baseServiceEnvSchema.shape,
   PORT: z.coerce.number().int().positive().default(4000),
   CORS_ORIGIN: z.string().default("*"),
   SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(DEFAULT_SESSION_TTL_SECONDS),
-  INGESTION_MOCK_MODE: z.coerce.boolean().default(false)
+  INGESTION_MOCK_MODE: z.coerce.boolean().default(false),
+  WHISPER_WORKER_URL: z.string().default("http://whisper-worker:8000"),
+  OPENAI_API_KEY: z.string().default(""),
+  TRANSCRIPTION_CONTEXT_SEGMENTS: z.coerce.number().int().min(0).max(10).default(3)
 });
 
-initSentry("ingestion-service");
-const logger = createLogger("ingestion-service", env.LOG_LEVEL);
+initSentry("ingest-service");
+const logger = createLogger("ingest-service", env.LOG_LEVEL);
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
@@ -52,13 +63,16 @@ const io = new Server(server, {
 });
 
 app.use(cors({ origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",") }));
-app.use(createHttpLogger("ingestion-service", env.LOG_LEVEL));
+app.use(createHttpLogger("ingest-service", env.LOG_LEVEL));
+
+const useOpenAI = !!env.OPENAI_API_KEY;
 
 app.get("/health", (_request, response) => {
   response.json({
     status: "ok",
-    service: "ingestion",
-    mockMode: env.INGESTION_MOCK_MODE
+    service: "ingest",
+    mockMode: env.INGESTION_MOCK_MODE,
+    transcriptionBackend: useOpenAI ? "openai" : "worker"
   });
 });
 
@@ -185,7 +199,7 @@ async function bootstrapMock() {
   });
 
   server.listen(env.PORT, () => {
-    logger.info({ port: env.PORT, mockMode: true }, "Mock ingestion service listening");
+    logger.info({ port: env.PORT, mockMode: true }, "Mock ingest service listening");
   });
 }
 
@@ -198,7 +212,19 @@ async function bootstrap() {
   const redis = await createRedisConnection(env.REDIS_URL);
   const transcriptConsumer = await createRedisConnection(env.REDIS_URL);
   const notificationConsumer = await createRedisConnection(env.REDIS_URL);
+  const audioChunkConsumer = await createRedisConnection(env.REDIS_URL);
 
+  // ── Transcription state ──
+  const transcriptContext = new Map<string, string[]>();
+  const lastTranscriptBySession = new Map<string, string>();
+
+  if (useOpenAI) {
+    logger.info("Using OpenAI Whisper API for transcription");
+  } else {
+    logger.info({ workerUrl: env.WHISPER_WORKER_URL }, "Using self-hosted Whisper worker for transcription");
+  }
+
+  // ── Socket.IO handlers (from ingestion) ──
   io.on("connection", (socket) => {
     logger.info({ socketId: socket.id }, "Socket connected");
 
@@ -340,6 +366,7 @@ async function bootstrap() {
     });
   });
 
+  // ── Relay transcript segments to client (from ingestion) ──
   void createJsonConsumer(
     transcriptConsumer,
     STREAM_NAMES.transcriptSegments,
@@ -354,6 +381,7 @@ async function bootstrap() {
     }
   );
 
+  // ── Relay intervention notifications to client (from ingestion) ──
   void createJsonConsumer(
     notificationConsumer,
     STREAM_NAMES.notificationsOutbound,
@@ -383,13 +411,72 @@ async function bootstrap() {
     }
   );
 
+  // ── Transcription consumer (from transcription service) ──
+  void createJsonConsumer(
+    audioChunkConsumer,
+    STREAM_NAMES.audioChunks,
+    CONSUMER_GROUPS.transcription,
+    `transcription-${uuidv4()}`,
+    (value) => parseStreamPayload(value, audioChunkEnvelopeSchema),
+    async (_id, chunk) => {
+      const sessionContext = transcriptContext.get(chunk.sessionId) ?? [];
+      const prompt = buildInitialPrompt(sessionContext.join(" "));
+
+      let transcription: { text: string; confidence?: number | undefined };
+
+      try {
+        if (useOpenAI) {
+          transcription = await transcribeWithOpenAI(env.OPENAI_API_KEY, chunk, {
+            initialPrompt: prompt
+          });
+        } else {
+          transcription = await transcribeWithWorker(env.WHISPER_WORKER_URL, chunk, {
+            initialPrompt: prompt
+          });
+        }
+      } catch (error) {
+        logger.error(
+          { err: error, sessionId: chunk.sessionId, seq: chunk.seq },
+          "Transcription failed for audio chunk"
+        );
+        Sentry.captureException(error, {
+          tags: { sessionId: chunk.sessionId, seq: String(chunk.seq) },
+          extra: {
+            backend: useOpenAI ? "openai" : "worker",
+            sampleRate: chunk.sampleRate,
+            language: chunk.language
+          }
+        });
+        return;
+      }
+
+      const nextText = stripOverlappingPrefix(lastTranscriptBySession.get(chunk.sessionId), transcription.text);
+      lastTranscriptBySession.set(chunk.sessionId, transcription.text);
+
+      if (!nextText.trim()) {
+        return;
+      }
+
+      const segment = createTranscriptSegment(chunk, nextText, transcription.confidence);
+      await xAddJson(redis, STREAM_NAMES.transcriptSegments, segment);
+
+      logger.info(
+        { sessionId: chunk.sessionId, seq: chunk.seq, textLength: nextText.length },
+        "Transcript segment published"
+      );
+
+      const nextContext = [...sessionContext, nextText].slice(-env.TRANSCRIPTION_CONTEXT_SEGMENTS);
+      transcriptContext.set(chunk.sessionId, nextContext);
+    }
+  );
+
   server.listen(env.PORT, () => {
-    logger.info({ port: env.PORT }, "Ingestion service listening");
+    logger.info({ port: env.PORT, transcriptionBackend: useOpenAI ? "openai" : "worker" }, "Ingest service listening");
   });
 }
 
 bootstrap().catch((error) => {
-  logger.error({ err: error }, "Ingestion service failed to start");
+  logger.error({ err: error }, "Ingest service failed to start");
   Sentry.captureException(error);
   process.exit(1);
 });

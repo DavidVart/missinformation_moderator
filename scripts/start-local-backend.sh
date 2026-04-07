@@ -115,11 +115,9 @@ PY
   wait_for_health "$name" "$port" "$log_file"
 }
 
-start_service "history" "4004" "services/history/src/index.ts"
-start_service "notification" "4003" "services/notification/src/index.ts"
+start_service "data" "4004" "services/data/src/index.ts"
 start_service "reasoning" "4002" "services/reasoning/src/index.ts"
-start_service "transcription" "4001" "services/transcription/src/index.ts"
-start_service "ingestion" "4000" "services/ingestion/src/index.ts"
+start_service "ingest" "4000" "services/ingest/src/index.ts"
 
 echo "local backend ready"
 echo "logs: $LOG_DIR"

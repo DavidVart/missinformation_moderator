@@ -1,5 +1,5 @@
 {
-  "name": "@project-veritas/analytics",
+  "name": "@project-veritas/data",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",

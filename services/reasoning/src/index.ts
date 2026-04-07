@@ -9,6 +9,7 @@ import {
 } from "@project-veritas/config";
 import {
   claimAssessmentSchema,
+  claimVerificationResultSchema,
   parseStreamPayload,
   transcriptSegmentSchema,
   type SourceCitation
@@ -28,13 +29,15 @@ import {
   fetchCitations,
   shouldAssessWindow
 } from "./reasoning-engine.js";
+import { createInterventionMessage, shouldPublishNotification } from "./notification.js";
 
 const env = createEnv({
   ...baseServiceEnvSchema.shape,
   PORT: z.coerce.number().int().positive().default(4002),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
-  TAVILY_API_KEY: z.string().optional()
+  TAVILY_API_KEY: z.string().optional(),
+  INTERVENTION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75)
 });
 
 initSentry("reasoning-service");
@@ -68,7 +71,8 @@ app.get("/health", (_request, response) => {
   response.json({
     status: "ok",
     service: "reasoning",
-    mode: isRealMode ? "real" : "mock"
+    mode: isRealMode ? "real" : "mock",
+    confidenceThreshold: env.INTERVENTION_CONFIDENCE_THRESHOLD
   });
 });
 
@@ -84,6 +88,7 @@ async function bootstrap() {
   const redis = await createRedisConnection(env.REDIS_URL);
   const detectionConsumer = await createRedisConnection(env.REDIS_URL);
   const verificationConsumer = await createRedisConnection(env.REDIS_URL);
+  const notificationConsumer = await createRedisConnection(env.REDIS_URL);
   const lastAssessedSignature = new Map<string, string>();
   const recentClaimsBySession = new Map<string, Array<{ claimText: string; checkedAtMs: number }>>();
 
@@ -222,8 +227,52 @@ async function bootstrap() {
     }
   );
 
+  // ── Notification consumer (from notification service) ──
+  void createJsonConsumer(
+    notificationConsumer,
+    STREAM_NAMES.verdictsCompleted,
+    CONSUMER_GROUPS.notification,
+    `notification-${uuidv4()}`,
+    (value) => parseStreamPayload(value, claimVerificationResultSchema),
+    async (_id, result) => {
+      logger.info({
+        sessionId: result.sessionId,
+        claimText: result.claimText,
+        verdict: result.verdict,
+        confidence: result.confidence,
+        mode: result.mode
+      }, "Received verdict for notification");
+
+      if (!shouldPublishNotification(result, env.INTERVENTION_CONFIDENCE_THRESHOLD)) {
+        logger.info({
+          sessionId: result.sessionId,
+          verdict: result.verdict,
+          confidence: result.confidence,
+          threshold: env.INTERVENTION_CONFIDENCE_THRESHOLD
+        }, "Verdict did not meet intervention criteria");
+        return;
+      }
+
+      try {
+        const message = createInterventionMessage(result);
+        await xAddJson(redis, STREAM_NAMES.notificationsOutbound, message);
+        logger.info({
+          sessionId: result.sessionId,
+          claimText: result.claimText,
+          verdict: result.verdict
+        }, "Published intervention notification");
+      } catch (error) {
+        logger.error({ err: error, sessionId: result.sessionId }, "Failed to publish intervention");
+        Sentry.captureException(error, {
+          tags: { sessionId: result.sessionId },
+          extra: { claimText: result.claimText, verdict: result.verdict }
+        });
+      }
+    }
+  );
+
   app.listen(env.PORT, () => {
-    logger.info({ port: env.PORT, mode: isRealMode ? "real" : "mock" }, "Reasoning service listening");
+    logger.info({ port: env.PORT, mode: isRealMode ? "real" : "mock", threshold: env.INTERVENTION_CONFIDENCE_THRESHOLD }, "Reasoning service listening");
   });
 }
 
