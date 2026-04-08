@@ -1,5 +1,14 @@
 <ion-app>
   <div class="app-shell">
+    <!-- ═══════════ AURORA BACKGROUND ═══════════ -->
+    @if (activeTab() === 'live') {
+      <div class="aurora-bg" [class.aurora-bg--live]="isMonitoring()">
+        <div class="aurora-bg__orb aurora-bg__orb--1"></div>
+        <div class="aurora-bg__orb aurora-bg__orb--2"></div>
+        <div class="aurora-bg__orb aurora-bg__orb--3"></div>
+      </div>
+    }
+
     <div class="app-scroll-area">
       <header class="topbar">
         <div class="topbar__left">
@@ -334,9 +343,11 @@
                 </div>
 
                 @if (topicsLoading()) {
-                  <div class="empty-panel empty-panel--waiting">
-                    <ion-spinner name="crescent"></ion-spinner>
-                    Loading topics...
+                  <div class="skeleton">
+                    <div class="skeleton__card"></div>
+                    <div class="skeleton__card"></div>
+                    <div class="skeleton__row skeleton__row--medium"></div>
+                    <div class="skeleton__row skeleton__row--short"></div>
                   </div>
                 } @else if (sessionTopics().length > 0) {
                   <div class="topic-grid">
@@ -413,9 +424,11 @@
                 </div>
 
                 @if (reflectionLoading()) {
-                  <div class="empty-panel empty-panel--waiting">
-                    <ion-spinner name="crescent"></ion-spinner>
-                    Loading reflection...
+                  <div class="skeleton">
+                    <div class="skeleton__row skeleton__row--full"></div>
+                    <div class="skeleton__card"></div>
+                    <div class="skeleton__row skeleton__row--medium"></div>
+                    <div class="skeleton__row skeleton__row--short"></div>
                   </div>
                 } @else if (monthlyReflection()) {
                   <article class="reflection-card">
@@ -488,9 +501,10 @@
                 </div>
 
                 @if (historyLoading()) {
-                  <div class="empty-panel empty-panel--waiting">
-                    <ion-spinner name="crescent"></ion-spinner>
-                    Loading history...
+                  <div class="skeleton">
+                    <div class="skeleton__card"></div>
+                    <div class="skeleton__card"></div>
+                    <div class="skeleton__card"></div>
                   </div>
                 } @else if (pastSessions().length > 0) {
                   <div class="history-list">
@@ -570,9 +584,12 @@
             </div>
 
             @if (rankingsLoading()) {
-              <div class="empty-panel empty-panel--waiting">
-                <ion-spinner name="crescent"></ion-spinner>
-                Loading leaderboard...
+              <div class="skeleton">
+                <div class="skeleton__card"></div>
+                <div class="skeleton__card"></div>
+                <div class="skeleton__card"></div>
+                <div class="skeleton__card"></div>
+                <div class="skeleton__card"></div>
               </div>
             } @else {
               @if (rankingsSubTab() === 'global') {
@@ -861,6 +878,7 @@
       <!-- ═══════════════════ CORRECTION TOAST ═══════════════════ -->
       @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
         <div class="correction-toast">
+          <div class="correction-toast__progress" aria-hidden="true"></div>
           <div class="correction-toast__header">
             <div class="correction-toast__badge">
               <ion-icon name="warning-outline"></ion-icon>
