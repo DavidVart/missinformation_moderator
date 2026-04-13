@@ -96,5 +96,20 @@ services:
     ports:
       - "4004:4004"
 
+  identity:
+    build:
+      context: .
+      dockerfile: docker/node-service.Dockerfile
+    command: ["node", "--import", "tsx", "services/identity/src/index.ts"]
+    environment:
+      PORT: 4005
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://postgres:postgres@postgres:5432/veritas}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4005:4005"
+
 volumes:
   postgres-data:

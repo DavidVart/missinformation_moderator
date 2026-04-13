@@ -100,27 +100,27 @@ async function bootstrap() {
     }
 
     const conditions: string[] = [];
-    const params: (string | number)[] = [];
+    const whereParams: (string | number)[] = [];
     let paramIndex = 1;
 
     if (userId) {
       conditions.push(`s.user_id = $${paramIndex++}`);
-      params.push(userId);
+      whereParams.push(userId);
     }
     if (deviceId) {
       conditions.push(`s.device_id = $${paramIndex++}`);
-      params.push(deviceId);
+      whereParams.push(deviceId);
     }
 
     const whereClause = conditions.join(" OR ");
-    const limitParam = paramIndex++;
-    const offsetParam = paramIndex++;
-    params.push(limit, offset);
 
     const countResult = await pool.query(
       `SELECT COUNT(*) as total FROM sessions s WHERE ${whereClause}`,
-      params.slice(0, -2)
+      whereParams
     );
+
+    const limitParam = paramIndex++;
+    const offsetParam = paramIndex++;
 
     const sessionsResult = await pool.query(
       `
@@ -150,7 +150,7 @@ async function bootstrap() {
         ORDER BY s.started_at DESC
         LIMIT $${limitParam} OFFSET $${offsetParam}
       `,
-      params
+      [...whereParams, limit, offset]
     );
 
     response.json({

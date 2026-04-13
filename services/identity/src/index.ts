@@ -8,7 +8,7 @@ import {
   userProfileSchema,
   userSchema
 } from "@project-veritas/contracts";
-import { createHttpLogger, createLogger } from "@project-veritas/observability";
+import { Sentry, createHttpLogger, createLogger, initSentry } from "@project-veritas/observability";
 import cors from "cors";
 import express from "express";
 import { Pool } from "pg";
@@ -25,6 +25,8 @@ const env = createEnv({
   MAGIC_LINK_TTL_MINUTES: z.coerce.number().int().positive().default(15),
   AUTH_SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30)
 });
+
+initSentry("identity-service");
 
 const logger = createLogger("identity-service", env.LOG_LEVEL);
 const app = express();
@@ -397,5 +399,6 @@ async function bootstrap() {
 
 bootstrap().catch((error) => {
   logger.error({ err: error }, "Identity service failed to start");
+  Sentry.captureException(error);
   process.exit(1);
 });
