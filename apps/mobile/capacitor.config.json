@@ -1,0 +1,11 @@
+{
+  "appId": "com.realtalk.mobile",
+  "appName": "Real Talk",
+  "webDir": "dist/mobile/browser",
+  "server": {
+    "androidScheme": "https"
+  },
+  "ios": {
+    "packageManager": "spm"
+  }
+}
