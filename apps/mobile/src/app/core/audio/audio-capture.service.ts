@@ -10,7 +10,12 @@ const TARGET_SAMPLE_RATE = 16000;
 // V2 client-side VAD: if the peak normalized level stays below this for the
 // entire chunk, we consider it silent and skip emitting it. Saves bandwidth
 // + matches server-side silence gating.
-const SILENCE_PEAK_THRESHOLD = 0.03;
+//
+// Threshold tuned conservatively because the iOS simulator's audio graph
+// has lower gain than a real phone. At 0.01 we only drop truly silent chunks;
+// anything with real speech makes it through. The server does a second pass
+// with Whisper's own no_speech_prob + pattern filter for hallucinations.
+const SILENCE_PEAK_THRESHOLD = 0.01;
 
 export type EncodedAudioChunk = {
   seq: number;

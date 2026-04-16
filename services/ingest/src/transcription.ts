@@ -9,6 +9,103 @@ export const whisperResponseSchema = z.object({
   confidence: z.number().min(0).max(1).optional()
 });
 
+/**
+ * Known Whisper hallucination patterns — phrases Whisper spits out when it
+ * processes silence/noise/ambient audio and has to output *something*. These
+ * come from Whisper's training data (lots of YouTube captions) and are NOT
+ * real transcription. We drop segments that match these patterns.
+ */
+const HALLUCINATION_PATTERNS: RegExp[] = [
+  /^\s*thanks? for watching[.!]?\s*$/i,
+  /^\s*thank you for watching[.!]?\s*$/i,
+  /^\s*please subscribe[.!]?\s*$/i,
+  /^\s*don'?t forget to subscribe[.!]?\s*$/i,
+  /subscribe to (my|our|the|this) channel/i,
+  /for more .* (videos|content),?\s*(subscribe|visit|check)/i,
+  /like,?\s*comment,?\s*(and )?subscribe/i,
+  /if you (enjoyed|liked|like) this video/i,
+  /hit that (like|subscribe) button/i,
+  /^\s*\[music\]\s*$/i,
+  /^\s*\[applause\]\s*$/i,
+  /^\s*\[.*?\]\s*$/i,     // any bracketed-only sound annotation
+  /^\s*♪.*♪\s*$/,          // music note markers
+  /^\s*\(.*?\)\s*$/i,     // any parenthetical-only annotation
+  /^\s*you\s*$/i,          // Whisper often emits a lone "you" on near-silence
+  /^\s*bye\.?\s*$/i,       // or a lone "bye."
+  /^\s*\.?\s*$/,           // empty or just punctuation
+  /^\s*okay\.?\s*$/i,
+  /^\s*thank you\.?\s*$/i
+];
+
+/**
+ * Detect whether Whisper's response is likely hallucinated.
+ * Uses three signals:
+ *   1. Whisper's own `no_speech_prob` (>= 0.6 means Whisper itself isn't
+ *      confident this is speech)
+ *   2. `avg_logprob` < -1.0 means low confidence generally
+ *   3. `compression_ratio` > 2.4 means the text is unusually repetitive (a
+ *      hallmark of hallucinated loops like "you. you. you. you.")
+ *   4. Pattern match against known YouTube-caption hallucinations.
+ */
+function isLikelyHallucination(
+  text: string,
+  segments: Array<{ no_speech_prob?: number; avg_logprob?: number; compression_ratio?: number }> | undefined
+): { hallucinated: boolean; reason: string } {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return { hallucinated: true, reason: "empty" };
+  }
+
+  // Pattern match first — cheapest check
+  for (const pattern of HALLUCINATION_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      return { hallucinated: true, reason: `matched pattern ${pattern.source}` };
+    }
+  }
+
+  if (!segments || segments.length === 0) {
+    return { hallucinated: false, reason: "no segments" };
+  }
+
+  // Aggregate signal across all segments in this chunk
+  let noSpeechSum = 0;
+  let avgLogProbSum = 0;
+  let compressionMax = 0;
+  let counted = 0;
+
+  for (const seg of segments) {
+    if (typeof seg.no_speech_prob === "number") {
+      noSpeechSum += seg.no_speech_prob;
+      counted += 1;
+    }
+    if (typeof seg.avg_logprob === "number") {
+      avgLogProbSum += seg.avg_logprob;
+    }
+    if (typeof seg.compression_ratio === "number" && seg.compression_ratio > compressionMax) {
+      compressionMax = seg.compression_ratio;
+    }
+  }
+
+  if (counted === 0) {
+    return { hallucinated: false, reason: "no scoring signal" };
+  }
+
+  const avgNoSpeech = noSpeechSum / counted;
+  const avgLogProb = avgLogProbSum / counted;
+
+  if (avgNoSpeech >= 0.6) {
+    return { hallucinated: true, reason: `no_speech_prob=${avgNoSpeech.toFixed(2)}` };
+  }
+  if (avgLogProb < -1.0) {
+    return { hallucinated: true, reason: `avg_logprob=${avgLogProb.toFixed(2)}` };
+  }
+  if (compressionMax > 2.4) {
+    return { hallucinated: true, reason: `compression_ratio=${compressionMax.toFixed(2)}` };
+  }
+
+  return { hallucinated: false, reason: "passed" };
+}
+
 export function resolveWhisperWorkerUrls(workerUrl: string) {
   const normalizedWorkerUrl = workerUrl.replace(/\/+$/, "");
   const workerUrls = [normalizedWorkerUrl];
@@ -152,12 +249,23 @@ export async function transcribeWithOpenAI(
 
   const payload = await response.json();
   // verbose_json returns { text, language, duration, segments[] }
-  // segments have avg_logprob which we can map to confidence
-  const avgLogProb = payload.segments?.[0]?.avg_logprob;
+  // segments have avg_logprob + no_speech_prob + compression_ratio.
+  const rawText = typeof payload.text === "string" ? payload.text : "";
+  const segments = Array.isArray(payload.segments) ? payload.segments : [];
+
+  // Reject Whisper hallucinations ("Thanks for watching", "Subscribe to the
+  // channel", lone "you", high no_speech_prob, high compression ratio, etc.)
+  const { hallucinated, reason } = isLikelyHallucination(rawText, segments);
+  if (hallucinated) {
+    console.warn(`[whisper] dropping likely hallucination (${reason}): "${rawText.slice(0, 80)}"`);
+    return whisperResponseSchema.parse({ text: "" });
+  }
+
+  const avgLogProb = segments[0]?.avg_logprob;
   const confidence = avgLogProb != null ? Math.max(0, Math.min(1, 1 + avgLogProb)) : undefined;
 
   return whisperResponseSchema.parse({
-    text: payload.text ?? "",
+    text: rawText,
     confidence
   });
 }
@@ -235,14 +343,18 @@ export function createTranscriptSegment(
  * V2 VAD gating — decide whether a chunk is worth transcribing.
  *
  * We compute the mean absolute sample value and peak sample value of the
- * decoded PCM16 audio. If both are below our silence thresholds, we skip
+ * decoded PCM16 audio. If BOTH are below our silence thresholds, we skip
  * the chunk (don't call Whisper). This saves API cost and — more importantly —
  * prevents Whisper from hallucinating transcripts on silent/low-energy audio
  * ("Thanks for watching!", "Please subscribe." are common Whisper ghosts).
+ *
+ * Thresholds tuned conservatively — iOS simulator's audio pipeline produces
+ * noticeably quieter signals than a real device, so we err on the side of
+ * letting chunks through. Whisper's own `no_speech_prob` + the hallucination
+ * pattern filter (above) catch what VAD misses.
  */
 export function isChunkSilent(chunk: AudioChunkEnvelope): boolean {
   const pcm16Bytes = Buffer.from(chunk.pcm16MonoBase64, "base64");
-  // PCM16 mono: each sample is 2 bytes, little-endian signed.
   const totalSamples = pcm16Bytes.byteLength / 2;
   if (totalSamples === 0) {
     return true;
@@ -251,8 +363,6 @@ export function isChunkSilent(chunk: AudioChunkEnvelope): boolean {
   let sumAbs = 0;
   let peakAbs = 0;
 
-  // Sample every ~10th frame for speed — 4s @ 16kHz = 64k samples, reading
-  // every byte is unnecessary for a silence check.
   const stride = 10;
   let counted = 0;
   for (let i = 0; i < pcm16Bytes.byteLength - 1; i += 2 * stride) {
@@ -266,8 +376,9 @@ export function isChunkSilent(chunk: AudioChunkEnvelope): boolean {
   }
 
   const meanAbs = sumAbs / Math.max(counted, 1);
-  // INT16 max is 32768. Mean abs < 80 (~0.0024 normalized) means near-silence.
-  // Peak < 1500 (~0.046) means no speech transients.
-  const isSilent = meanAbs < 80 && peakAbs < 1500;
+  // INT16 max is 32768. Only drop chunks that are TRULY silent:
+  //   - mean < 30 (~0.0009 normalized) AND peak < 400 (~0.012)
+  // Anything louder goes to Whisper, which has its own no_speech_prob gate.
+  const isSilent = meanAbs < 30 && peakAbs < 400;
   return isSilent;
 }
