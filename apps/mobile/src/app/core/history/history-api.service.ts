@@ -37,6 +37,13 @@ type InterventionHistoryResponse = {
   }>;
 };
 
+function isCapacitorNative(): boolean {
+  const cap = (globalThis as Record<string, unknown>)["Capacitor"] as
+    | { isNativePlatform?: () => boolean }
+    | undefined;
+  return !!cap?.isNativePlatform?.();
+}
+
 function resolveHistoryUrl(): string {
   if (environment.historyUrl) {
     return environment.historyUrl;
@@ -45,6 +52,10 @@ function resolveHistoryUrl(): string {
   const globalOverride = (globalThis as typeof globalThis & { __VERITAS_HISTORY_URL__?: string }).__VERITAS_HISTORY_URL__;
   if (globalOverride) {
     return globalOverride;
+  }
+
+  if (isCapacitorNative()) {
+    return "https://real-talk-data.onrender.com/api/history";
   }
 
   const defaultHost = globalThis.location?.hostname || "localhost";

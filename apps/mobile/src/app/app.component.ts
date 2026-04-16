@@ -450,6 +450,18 @@ export class AppComponent implements OnDestroy {
     this.posthog.init();
     void this.auth.init();
 
+    // Mobile auth handoff: when the Vercel web app is opened from the native
+    // app (?mobileAuth=1), perform the Clerk sign-in flow here (where cookies
+    // work) and redirect back to the native app via the custom URL scheme
+    // with the user's info + session JWT. See auth.service.ts for the native
+    // side that receives this redirect.
+    this.maybeHandleMobileAuthHandoff();
+
+    // Pre-warm the Socket.IO connection so the Render service wakes up from
+    // cold-start while the user is still on the home screen, rather than
+    // making them wait when they press the mic button.
+    this.socketService.connect();
+
     // Sync Clerk profile to analytics DB whenever user signs in
     effect(() => {
       const userId = this.auth.userId();
@@ -860,6 +872,80 @@ export class AppComponent implements OnDestroy {
       background_capture: "Background"
     };
     return labels[mode] ?? mode;
+  }
+
+  // ─────────────── Mobile auth handoff (Vercel web) ───────────────
+
+  /**
+   * Detect the `?mobileAuth=1` query param set when the native app opens this
+   * Vercel-hosted web app via the in-app browser. When present, we:
+   *   1. Wait for Clerk to be ready
+   *   2. If not signed in, open the Clerk sign-in modal
+   *   3. Once signed in, build a deep-link URL with the user info + session
+   *      token and redirect to `com.realtalk.mobile://auth?...`, which the
+   *      native app receives via its URL scheme listener.
+   */
+  private maybeHandleMobileAuthHandoff() {
+    const loc = globalThis.location;
+    if (!loc) {
+      return;
+    }
+    const params = new URLSearchParams(loc.search);
+    if (params.get("mobileAuth") !== "1") {
+      return;
+    }
+
+    const scheme = params.get("scheme") || "com.realtalk.mobile";
+    let handoffDone = false;
+    let signInOpened = false;
+
+    // React to Clerk ready/signed-in state changes.
+    effect(() => {
+      if (handoffDone) {
+        return;
+      }
+      if (!this.auth.isReady()) {
+        return;
+      }
+
+      if (this.auth.isSignedIn()) {
+        handoffDone = true;
+        void this.performMobileAuthRedirect(scheme);
+      } else if (!signInOpened) {
+        signInOpened = true;
+        void this.auth.openSignIn();
+      }
+    });
+  }
+
+  private async performMobileAuthRedirect(scheme: string) {
+    // Retrieve the Clerk session JWT for the native app to use as a bearer
+    // token on authenticated API calls.
+    let token = "";
+    try {
+      const clerk = (globalThis as Record<string, unknown>)["Clerk"] as
+        | { session?: { getToken?: () => Promise<string | null> } }
+        | undefined;
+      token = (await clerk?.session?.getToken?.()) ?? "";
+    } catch (error) {
+      console.warn("Failed to get Clerk session token:", error);
+    }
+
+    const meta = this.auth.profileMeta();
+    const redirectParams = new URLSearchParams({
+      userId: this.auth.userId() ?? "",
+      email: this.auth.email() ?? "",
+      displayName: this.auth.displayName() ?? "",
+      avatarUrl: this.auth.avatarUrl() ?? "",
+      school: meta.school,
+      major: meta.major,
+      country: meta.country,
+      bio: meta.bio,
+      leaderboardVisibility: meta.leaderboardVisibility,
+      token
+    });
+
+    globalThis.location.href = `${scheme}://auth?${redirectParams.toString()}`;
   }
 
   // ───────────────────── Monitoring ─────────────────────

@@ -23,6 +23,16 @@ function preferredLanguage() {
   return language?.toLowerCase();
 }
 
+/** Detect Capacitor native runtime via the injected Capacitor global. */
+function isCapacitorNative(): boolean {
+  const cap = (globalThis as Record<string, unknown>)["Capacitor"] as
+    | { isNativePlatform?: () => boolean }
+    | undefined;
+  return !!cap?.isNativePlatform?.();
+}
+
+const RENDER_SOCKET_URL = "https://real-talk-ingestion.onrender.com";
+
 function resolveSocketUrl(): string {
   // 1. Explicit environment config (production)
   if (environment.socketUrl) {
@@ -35,7 +45,12 @@ function resolveSocketUrl(): string {
     return globalOverride;
   }
 
-  // 3. Local dev — same hostname, port 4000
+  // 3. Capacitor native — always use deployed backend
+  if (isCapacitorNative()) {
+    return RENDER_SOCKET_URL;
+  }
+
+  // 4. Local dev — same hostname, port 4000
   const defaultHost = globalThis.location?.hostname || "localhost";
   return `http://${defaultHost}:4000`;
 }

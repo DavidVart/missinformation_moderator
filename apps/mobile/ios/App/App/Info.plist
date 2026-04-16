@@ -51,5 +51,18 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.realtalk.mobile</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.realtalk.mobile</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

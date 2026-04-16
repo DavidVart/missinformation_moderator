@@ -4,8 +4,5 @@
   "webDir": "dist/mobile/browser",
   "server": {
     "androidScheme": "https"
-  },
-  "ios": {
-    "packageManager": "spm"
   }
 }

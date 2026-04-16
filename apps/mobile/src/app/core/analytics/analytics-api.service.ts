@@ -9,6 +9,13 @@ import type {
   TopicSummary
 } from "@project-veritas/contracts";
 
+function isCapacitorNative(): boolean {
+  const cap = (globalThis as Record<string, unknown>)["Capacitor"] as
+    | { isNativePlatform?: () => boolean }
+    | undefined;
+  return !!cap?.isNativePlatform?.();
+}
+
 function resolveAnalyticsUrl(): string {
   if (environment.analyticsUrl) {
     return environment.analyticsUrl;
@@ -17,6 +24,10 @@ function resolveAnalyticsUrl(): string {
   const globalOverride = (globalThis as typeof globalThis & { __VERITAS_ANALYTICS_URL__?: string }).__VERITAS_ANALYTICS_URL__;
   if (globalOverride) {
     return globalOverride;
+  }
+
+  if (isCapacitorNative()) {
+    return "https://real-talk-data.onrender.com/api/analytics";
   }
 
   const defaultHost = globalThis.location?.hostname || "localhost";

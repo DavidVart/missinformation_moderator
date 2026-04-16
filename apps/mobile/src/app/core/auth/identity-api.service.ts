@@ -34,6 +34,13 @@ export type UserInfo = MagicLinkVerifyResponse["user"];
 
 type ProfileGetResponse = UserProfile;
 
+function isCapacitorNative(): boolean {
+  const cap = (globalThis as Record<string, unknown>)["Capacitor"] as
+    | { isNativePlatform?: () => boolean }
+    | undefined;
+  return !!cap?.isNativePlatform?.();
+}
+
 function resolveIdentityUrl(): string {
   if (environment.identityUrl) {
     return environment.identityUrl;
@@ -42,6 +49,10 @@ function resolveIdentityUrl(): string {
   const globalOverride = (globalThis as typeof globalThis & { __VERITAS_IDENTITY_URL__?: string }).__VERITAS_IDENTITY_URL__;
   if (globalOverride) {
     return globalOverride;
+  }
+
+  if (isCapacitorNative()) {
+    return "https://real-talk-identity.onrender.com/api/identity";
   }
 
   const defaultHost = globalThis.location?.hostname || "localhost";
