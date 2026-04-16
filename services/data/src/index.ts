@@ -33,13 +33,17 @@ import {
 } from "./database.js";
 import { mapInterventions, mapSessionTranscript } from "./queries.js";
 import {
+  attributeSessionToOpponent,
   bootstrapAnalyticsSchema,
   generateMonthlyReflection,
+  materializePendingAttributionsForUser,
   persistClaimAnalytics,
   persistTranscriptTopic,
   recomputeSessionScore,
   refreshSnapshots,
-  resolveUserFromAuthSession
+  resolveUserFromAuthSession,
+  saveVoiceEnrollment,
+  searchUsersForAttribution
 } from "./analytics.js";
 
 const env = createEnv({
@@ -294,7 +298,119 @@ async function bootstrap() {
       [userId, displayName, avatar ?? null, school ?? null, major ?? null, country ?? null, bio ?? null, leaderboardVisibility]
     );
 
-    response.json({ ok: true });
+    // V2: when a user signs in, check if any pending opponent attributions
+    // reference their email. If so, materialize them — their leaderboard
+    // retroactively picks up scores from debates they were tagged in.
+    const { materializedCount } = await materializePendingAttributionsForUser(pool, userId, resolvedEmail);
+    if (materializedCount > 0) {
+      logger.info({ userId, email: resolvedEmail, materializedCount }, "Materialized pending opponent attributions on profile sync");
+    }
+
+    response.json({ ok: true, materializedCount });
+  });
+
+  // ─── V2: Attribute session to opponent ───
+  app.post(`${env.ANALYTICS_API_PREFIX}/sessions/:sessionId/attribute`, async (request, response) => {
+    const { sessionId } = request.params;
+    const body = z.object({
+      opponentUserId: z.string().optional(),
+      opponentEmail: z.string().email().optional(),
+      opponentDisplayName: z.string().optional()
+    }).safeParse(request.body);
+
+    if (!body.success) {
+      response.status(400).json({ message: "Invalid body", errors: body.error.issues });
+      return;
+    }
+
+    if (!body.data.opponentUserId && !body.data.opponentEmail) {
+      response.status(400).json({ message: "Either opponentUserId or opponentEmail is required" });
+      return;
+    }
+
+    try {
+      const result = await attributeSessionToOpponent(pool, sessionId, body.data);
+      // Recompute the primary user's score too — now that we have attribution,
+      // their score is limited to their own (speaker_role='self') claims.
+      const primaryRes = await pool.query(
+        "SELECT user_id, mode FROM sessions WHERE session_id = $1",
+        [sessionId]
+      );
+      if ((primaryRes.rowCount ?? 0) > 0 && primaryRes.rows[0]) {
+        // Build a minimal ClaimVerificationResult shape to trigger recompute.
+        const { user_id, mode } = primaryRes.rows[0];
+        await recomputeSessionScore(pool, {
+          claimId: "attribution-trigger",
+          sessionId,
+          userId: user_id ? String(user_id) : undefined,
+          mode: String(mode ?? "debate_live") as any,
+          transcriptSegmentIds: [sessionId],
+          claimText: "",
+          verdict: "unverified" as const,
+          confidence: 0,
+          correction: "",
+          sources: [],
+          checkedAt: new Date().toISOString(),
+          speakerRole: "self" as const
+        });
+      }
+
+      logger.info({ attribution: result }, "Session attributed to opponent");
+      response.json({ ok: true, ...result });
+    } catch (error) {
+      logger.error({ err: error, sessionId }, "Failed to attribute session");
+      Sentry.captureException(error, { tags: { sessionId } });
+      response.status(500).json({ message: "Internal error", error: error instanceof Error ? error.message : "Unknown" });
+    }
+  });
+
+  // ─── V2: Search users for opponent attribution ───
+  app.get(`${env.ANALYTICS_API_PREFIX}/users/search`, async (request, response) => {
+    const query = typeof request.query.q === "string" ? request.query.q : "";
+    const limit = Math.min(Number(request.query.limit) || 10, 25);
+
+    if (query.trim().length < 2) {
+      response.json({ results: [] });
+      return;
+    }
+
+    try {
+      const results = await searchUsersForAttribution(pool, query, limit);
+      response.json({ results });
+    } catch (error) {
+      logger.error({ err: error, query }, "User search failed");
+      Sentry.captureException(error);
+      response.status(500).json({ message: "Internal error" });
+    }
+  });
+
+  // ─── V2: Voice enrollment (stored for future auto-diarization) ───
+  app.post(`${env.ANALYTICS_API_PREFIX}/voice-enrollment`, async (request, response) => {
+    const body = z.object({
+      userId: z.string().min(1),
+      durationMs: z.number().int().positive().max(30000),
+      sampleRate: z.number().int().positive().default(16000),
+      pcm16MonoBase64: z.string().min(1)
+    }).safeParse(request.body);
+
+    if (!body.success) {
+      response.status(400).json({ message: "Invalid body", errors: body.error.issues });
+      return;
+    }
+
+    try {
+      const result = await saveVoiceEnrollment(pool, body.data.userId, {
+        durationMs: body.data.durationMs,
+        sampleRate: body.data.sampleRate,
+        pcm16Base64: body.data.pcm16MonoBase64
+      });
+      logger.info({ userId: body.data.userId, durationMs: body.data.durationMs }, "Voice enrollment saved");
+      response.json({ ok: true, ...result });
+    } catch (error) {
+      logger.error({ err: error }, "Voice enrollment failed");
+      Sentry.captureException(error);
+      response.status(500).json({ message: "Internal error" });
+    }
   });
 
   app.get(`${env.ANALYTICS_API_PREFIX}/reflections/monthly`, async (request, response) => {

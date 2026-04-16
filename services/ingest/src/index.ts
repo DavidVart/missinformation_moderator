@@ -36,6 +36,7 @@ import {
 import {
   buildInitialPrompt,
   createTranscriptSegment,
+  isChunkSilent,
   stripOverlappingPrefix,
   transcribeWithOpenAI,
   transcribeWithWorker
@@ -419,6 +420,17 @@ async function bootstrap() {
     `transcription-${uuidv4()}`,
     (value) => parseStreamPayload(value, audioChunkEnvelopeSchema),
     async (_id, chunk) => {
+      // V2 VAD gating: skip silent chunks before calling Whisper. Saves cost
+      // and avoids hallucinated transcripts like "Thanks for watching" on
+      // near-silent audio.
+      if (isChunkSilent(chunk)) {
+        logger.debug(
+          { sessionId: chunk.sessionId, seq: chunk.seq },
+          "Skipping silent audio chunk (VAD gate)"
+        );
+        return;
+      }
+
       const sessionContext = transcriptContext.get(chunk.sessionId) ?? [];
       const prompt = buildInitialPrompt(sessionContext.join(" "));
 

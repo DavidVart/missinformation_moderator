@@ -96,6 +96,33 @@
                 <span>{{ isMonitoring() ? 'Listening...' : statusMessage() }}</span>
               </div>
 
+              <!-- V2 Debate Mode: Speaker toggle (who is currently speaking?) -->
+              @if (selectedMode() === 'debate_live' && isMonitoring()) {
+                <div class="speaker-toggle">
+                  <span class="speaker-toggle__label">Speaking now</span>
+                  <div class="speaker-toggle__pills">
+                    <button
+                      type="button"
+                      class="speaker-toggle__pill speaker-toggle__pill--self"
+                      [class.is-active]="speakerState.currentSpeaker() === 'self'"
+                      (click)="speakerState.setSpeaker('self')"
+                      aria-label="Set current speaker to You">
+                      <ion-icon name="person-outline"></ion-icon>
+                      <span>You</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="speaker-toggle__pill speaker-toggle__pill--opponent"
+                      [class.is-active]="speakerState.currentSpeaker() === 'opponent'"
+                      (click)="speakerState.setSpeaker('opponent')"
+                      aria-label="Set current speaker to Opponent">
+                      <ion-icon name="chatbubbles-outline"></ion-icon>
+                      <span>Opponent</span>
+                    </button>
+                  </div>
+                </div>
+              }
+
               <div class="session-glance">
                 @for (item of sessionGlanceItems(); track item.label) {
                   <article class="glance-pill" [class.is-emphasis]="item.emphasis">
@@ -170,9 +197,16 @@
               </section>
 
               @if (latestIntervention() && !showCorrectionOverlay()) {
-                <section class="intervention-strip">
+                <section class="intervention-strip" [class.is-self]="latestIntervention()?.attributedTo === 'self'" [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'">
                   <div>
-                    <p class="intervention-kicker">Latest correction</p>
+                    <p class="intervention-kicker">
+                      @if (latestIntervention()?.attributedTo === 'self') {
+                        You said —
+                      } @else if (latestIntervention()?.attributedTo === 'opponent') {
+                        Opponent said —
+                      }
+                      Correction
+                    </p>
                     <p class="intervention-copy">{{ latestIntervention().correction }}</p>
                     <div class="intervention-meta">
                       <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
@@ -845,6 +879,49 @@
                     <span class="toggle-switch__thumb"></span>
                   </button>
                 </article>
+
+                <!-- V2: Voice enrollment — records a 10s sample for future auto-diarization -->
+                @if (auth.isSignedIn()) {
+                  <article class="settings-item settings-item--action">
+                    <div>
+                      <p class="settings-label">Voice enrollment</p>
+                      <p class="settings-description">
+                        @if (voiceEnrollmentState() === 'enrolled') {
+                          Voice saved — auto-detect coming soon.
+                        } @else if (voiceEnrollmentState() === 'recording') {
+                          Recording your voice ({{ voiceEnrollmentCountdown() }}s)…
+                        } @else if (voiceEnrollmentState() === 'uploading') {
+                          Uploading…
+                        } @else {
+                          Record 10 seconds so Real Talk can recognize your voice.
+                        }
+                      </p>
+                    </div>
+                    <button
+                      class="text-link-button"
+                      type="button"
+                      [disabled]="voiceEnrollmentState() === 'recording' || voiceEnrollmentState() === 'uploading'"
+                      (click)="startVoiceEnrollment()">
+                      @if (voiceEnrollmentState() === 'enrolled') {
+                        Re-record
+                      } @else if (voiceEnrollmentState() === 'recording') {
+                        Recording…
+                      } @else {
+                        Record
+                      }
+                    </button>
+                  </article>
+
+                  <article class="settings-item settings-item--toggle">
+                    <div>
+                      <p class="settings-label">Auto-detect speaker (beta)</p>
+                      <p class="settings-description">Coming soon — will use voice enrollment to auto-identify speakers.</p>
+                    </div>
+                    <button class="toggle-switch" disabled type="button">
+                      <span class="toggle-switch__thumb"></span>
+                    </button>
+                  </article>
+                }
                 <article class="settings-item">
                   <div>
                     <p class="settings-label">Audio capture window</p>
@@ -877,12 +954,20 @@
 
       <!-- ═══════════════════ CORRECTION TOAST ═══════════════════ -->
       @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
-        <div class="correction-toast">
+        <div class="correction-toast" [class.is-self]="intervention.attributedTo === 'self'" [class.is-opponent]="intervention.attributedTo === 'opponent'">
           <div class="correction-toast__progress" aria-hidden="true"></div>
           <div class="correction-toast__header">
             <div class="correction-toast__badge">
               <ion-icon name="warning-outline"></ion-icon>
-              <span>Correction</span>
+              <span>
+                @if (intervention.attributedTo === 'self') {
+                  You were corrected
+                } @else if (intervention.attributedTo === 'opponent') {
+                  Opponent corrected
+                } @else {
+                  Correction
+                }
+              </span>
             </div>
             <button class="correction-toast__dismiss" type="button" (click)="closeCorrectionOverlay()">
               <ion-icon name="close-outline"></ion-icon>
@@ -931,6 +1016,80 @@
               }
             </button>
           }
+        </div>
+      </div>
+    }
+
+    <!-- ═══════════════════ V2 ATTRIBUTION MODAL ═══════════════════ -->
+    @if (attributionModalOpen()) {
+      <div class="sheet-backdrop" (click)="closeAttributionModal()"></div>
+      <div class="sheet-panel attribution-panel">
+        <div class="sheet-handle"><span></span></div>
+        <p class="sheet-title">Who were you debating?</p>
+        <p class="attribution-subtitle">
+          Tag your opponent so their accuracy also shows up on the leaderboard.
+        </p>
+
+        <div class="attribution-field">
+          <input
+            class="form-input"
+            type="text"
+            placeholder="Search by name or email"
+            [ngModel]="attributionQuery()"
+            (ngModelChange)="onAttributionQueryChange($event)" />
+        </div>
+
+        @if (attributionSearchResults().length > 0) {
+          <div class="attribution-results">
+            @for (result of attributionSearchResults(); track result.userId) {
+              <button
+                class="attribution-result-row"
+                type="button"
+                [disabled]="attributionSubmitting()"
+                (click)="submitAttributionForUser(result.userId, result.displayName)">
+                <div class="attribution-avatar">
+                  @if (result.avatar) {
+                    <img [src]="result.avatar" alt="" />
+                  } @else {
+                    <ion-icon name="person-outline"></ion-icon>
+                  }
+                </div>
+                <div class="attribution-result-text">
+                  <strong>{{ result.displayName }}</strong>
+                  @if (result.school) {
+                    <span>{{ result.school }}</span>
+                  } @else if (result.email) {
+                    <span>{{ result.email }}</span>
+                  }
+                </div>
+              </button>
+            }
+          </div>
+        }
+
+        @if (attributionQuery().trim().length >= 2 && attributionSearchResults().length === 0) {
+          <div class="attribution-empty">
+            <p>No match on that exact search.</p>
+            <button
+              class="secondary-cta"
+              type="button"
+              [disabled]="attributionSubmitting()"
+              (click)="submitAttributionForEmail(attributionQuery())">
+              <ion-icon name="person-outline"></ion-icon>
+              <span>Invite by email — "{{ attributionQuery() }}"</span>
+            </button>
+            <p class="attribution-hint">
+              We'll link the debate to their leaderboard the moment they sign up.
+            </p>
+          </div>
+        }
+
+        @if (attributionError()) {
+          <div class="inline-alert inline-alert--error">{{ attributionError() }}</div>
+        }
+
+        <div class="attribution-actions">
+          <button class="text-link-button" type="button" (click)="skipAttribution()">Skip for now</button>
         </div>
       </div>
     }

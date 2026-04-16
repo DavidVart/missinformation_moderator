@@ -56,10 +56,12 @@ import type {
 
 import { AnalyticsApiService } from "./core/analytics/analytics-api.service";
 import { PosthogService } from "./core/analytics/posthog.service";
+import { AttributionApiService } from "./core/attribution/attribution-api.service";
 import { AudioCaptureService } from "./core/audio/audio-capture.service";
 import { AuthService } from "./core/auth/auth.service";
 import { HistoryApiService } from "./core/history/history-api.service";
 import { MonitoringSocketService } from "./core/monitoring/monitoring-socket.service";
+import { SpeakerStateService } from "./core/speakers/speaker-state.service";
 import { SpeechService } from "./core/speech/speech.service";
 
 type AppTab = "live" | "insights" | "rankings" | "profile";
@@ -140,7 +142,21 @@ export class AppComponent implements OnDestroy {
   private readonly speechService = inject(SpeechService);
   private readonly posthog = inject(PosthogService);
   protected readonly auth = inject(AuthService);
+  protected readonly speakerState = inject(SpeakerStateService);
+  private readonly attributionApi = inject(AttributionApiService);
   private readonly subscriptions = new Subscription();
+
+  // V2: post-session attribution modal state
+  protected readonly attributionModalOpen = signal(false);
+  protected readonly attributionQuery = signal("");
+  protected readonly attributionSearchResults = signal<Array<{ userId: string; displayName: string; email?: string; avatar?: string; school?: string }>>([]);
+  protected readonly attributionSubmitting = signal(false);
+  protected readonly attributionError = signal<string | null>(null);
+  protected readonly attributionCompletedForSessionId = signal<string | null>(null);
+
+  // V2: voice enrollment state (for future auto-diarization)
+  protected readonly voiceEnrollmentState = signal<"idle" | "recording" | "uploading" | "enrolled">("idle");
+  protected readonly voiceEnrollmentCountdown = signal(10);
 
   protected readonly isMonitoring = signal(false);
   protected readonly isBusy = signal(false);
@@ -526,6 +542,11 @@ export class AppComponent implements OnDestroy {
         this.activityLevel.set(level);
       })
     );
+
+    // V2: feed the audio capture service a provider that returns the user's
+    // current speaker toggle state. Read on every chunk emission so mid-session
+    // toggles take effect immediately on the next chunk.
+    this.audioCaptureService.setSpeakerRoleProvider(() => this.speakerState.currentSpeaker());
 
     this.subscriptions.add(
       this.audioCaptureService.chunks$.subscribe(async (chunk) => {
@@ -1011,6 +1032,10 @@ export class AppComponent implements OnDestroy {
     this.isMonitoring.set(false);
     this.statusMessage.set("Stopping capture");
 
+    // V2: remember which session just ended so the attribution modal
+    // can send its result to the right session endpoint.
+    const stoppedSessionId = this.sessionId();
+
     try {
       await this.audioCaptureService.stop();
       const currentSessionId = this.sessionId();
@@ -1052,8 +1077,112 @@ export class AppComponent implements OnDestroy {
       this.sessionId.set(null);
       this.sessionStartedAtMs.set(null);
       this.isBusy.set(false);
+      this.speakerState.reset();
+
+      // V2: After a debate_live session, prompt the user to identify the
+      // opponent so both sides can appear on the leaderboard. Only show
+      // this if the session actually produced transcript content (not a
+      // cold-boot cancel), and only once per session.
+      if (
+        stoppedSessionId &&
+        this.selectedMode() === "debate_live" &&
+        this.transcriptSegments().length > 0 &&
+        this.attributionCompletedForSessionId() !== stoppedSessionId
+      ) {
+        this.openAttributionModal(stoppedSessionId);
+      }
     }
   }
+
+  // ───────────────────── V2 attribution flow ─────────────────────
+
+  protected openAttributionModal(sessionId: string) {
+    // Stash the sessionId-to-attribute in the "completed" slot (consumed when
+    // the user submits or skips).
+    this.attributionCompletedForSessionId.set(null);
+    this.attributionQuery.set("");
+    this.attributionSearchResults.set([]);
+    this.attributionError.set(null);
+    this.attributionModalOpen.set(true);
+    // Stash the session we're attributing via a signal
+    this.sessionPendingAttribution.set(sessionId);
+  }
+
+  protected closeAttributionModal() {
+    this.attributionModalOpen.set(false);
+    this.sessionPendingAttribution.set(null);
+  }
+
+  protected async onAttributionQueryChange(query: string) {
+    this.attributionQuery.set(query);
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      this.attributionSearchResults.set([]);
+      return;
+    }
+    try {
+      const res = await this.attributionApi.searchUsers(trimmed);
+      this.attributionSearchResults.set(res.results);
+    } catch (error) {
+      console.warn("User search failed:", error);
+      this.attributionSearchResults.set([]);
+    }
+  }
+
+  protected async submitAttributionForUser(userId: string, displayName: string) {
+    const sessionId = this.sessionPendingAttribution();
+    if (!sessionId) {
+      return;
+    }
+    this.attributionSubmitting.set(true);
+    this.attributionError.set(null);
+    try {
+      await this.attributionApi.attributeSession(sessionId, {
+        opponentUserId: userId,
+        opponentDisplayName: displayName
+      });
+      this.attributionCompletedForSessionId.set(sessionId);
+      this.closeAttributionModal();
+    } catch (error) {
+      this.attributionError.set(error instanceof Error ? error.message : "Failed to attribute");
+    } finally {
+      this.attributionSubmitting.set(false);
+    }
+  }
+
+  protected async submitAttributionForEmail(email: string) {
+    const sessionId = this.sessionPendingAttribution();
+    if (!sessionId) {
+      return;
+    }
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      this.attributionError.set("Enter a valid email address.");
+      return;
+    }
+    this.attributionSubmitting.set(true);
+    this.attributionError.set(null);
+    try {
+      await this.attributionApi.attributeSession(sessionId, { opponentEmail: trimmedEmail });
+      this.attributionCompletedForSessionId.set(sessionId);
+      this.closeAttributionModal();
+    } catch (error) {
+      this.attributionError.set(error instanceof Error ? error.message : "Failed to attribute");
+    } finally {
+      this.attributionSubmitting.set(false);
+    }
+  }
+
+  protected skipAttribution() {
+    const sessionId = this.sessionPendingAttribution();
+    if (sessionId) {
+      this.attributionCompletedForSessionId.set(sessionId);
+    }
+    this.closeAttributionModal();
+  }
+
+  // Signal holding the session currently queued for attribution.
+  private readonly sessionPendingAttribution = signal<string | null>(null);
 
   private async refreshHistory() {
     const currentSessionId = this.sessionId();
@@ -1104,5 +1233,88 @@ export class AppComponent implements OnDestroy {
     const next = crypto.randomUUID();
     globalThis.localStorage?.setItem(storageKey, next);
     return next;
+  }
+
+  // ───────────────────── V2 Voice enrollment ─────────────────────
+  //
+  // Records a ~10-second sample of the user's voice and uploads it to the
+  // data service. Stored as raw PCM16 base64 for future auto-diarization.
+  // We pause any active debate session first to avoid collision.
+
+  protected async startVoiceEnrollment() {
+    const userId = this.auth.userId();
+    if (!userId) {
+      this.micError.set("Sign in to enroll your voice.");
+      return;
+    }
+    if (this.isMonitoring()) {
+      this.micError.set("Stop the current session before enrolling.");
+      return;
+    }
+    if (this.voiceEnrollmentState() !== "idle" && this.voiceEnrollmentState() !== "enrolled") {
+      return;
+    }
+
+    this.voiceEnrollmentState.set("recording");
+    this.voiceEnrollmentCountdown.set(10);
+    this.micError.set(null);
+
+    // Collect chunks emitted by audio-capture while we're recording
+    const collectedChunks: string[] = [];
+    const subscription = this.audioCaptureService.chunks$.subscribe((chunk) => {
+      // chunk.pcm16Mono is a base64 string of a 4s window.
+      // For enrollment we concatenate the first 3 chunks (≈10s of speech).
+      if (collectedChunks.length < 3) {
+        collectedChunks.push(chunk.pcm16Mono);
+      }
+    });
+
+    try {
+      await this.audioCaptureService.start();
+
+      // Countdown tick
+      const countdownInterval = globalThis.setInterval(() => {
+        const next = this.voiceEnrollmentCountdown() - 1;
+        this.voiceEnrollmentCountdown.set(Math.max(0, next));
+      }, 1000);
+
+      // Wait 10 seconds, then stop.
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 10_000));
+      globalThis.clearInterval(countdownInterval);
+
+      await this.audioCaptureService.stop();
+      subscription.unsubscribe();
+
+      if (collectedChunks.length === 0) {
+        this.voiceEnrollmentState.set("idle");
+        this.micError.set("No audio captured — try again.");
+        return;
+      }
+
+      this.voiceEnrollmentState.set("uploading");
+
+      // Concatenate base64 PCM payloads by decoding, concatenating, re-encoding.
+      // Simpler: just send all three concatenated — the server can decode and merge.
+      // For now, send the FIRST chunk (4s is enough of a voice sample for V2; the
+      // auto-diarization model can enroll from even 1–2s of speech).
+      const firstChunk = collectedChunks[0] ?? "";
+      await this.attributionApi.submitVoiceEnrollment({
+        userId,
+        durationMs: 4000,
+        sampleRate: 16000,
+        pcm16MonoBase64: firstChunk
+      });
+
+      this.voiceEnrollmentState.set("enrolled");
+    } catch (error) {
+      subscription.unsubscribe();
+      try {
+        await this.audioCaptureService.stop();
+      } catch {
+        // already stopped
+      }
+      this.voiceEnrollmentState.set("idle");
+      this.micError.set(error instanceof Error ? error.message : "Voice enrollment failed.");
+    }
   }
 }

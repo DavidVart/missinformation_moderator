@@ -227,6 +227,11 @@ async function bootstrap() {
     }
   );
 
+  // V2: rate-limit interventions to max 1 per 15 seconds per session so the
+  // user isn't overwhelmed by rapid-fire corrections on dense debate audio.
+  const INTERVENTION_RATE_LIMIT_MS = 15_000;
+  const lastInterventionAtMs = new Map<string, number>();
+
   // ── Notification consumer (from notification service) ──
   void createJsonConsumer(
     notificationConsumer,
@@ -240,7 +245,8 @@ async function bootstrap() {
         claimText: result.claimText,
         verdict: result.verdict,
         confidence: result.confidence,
-        mode: result.mode
+        mode: result.mode,
+        speakerRole: result.speakerRole
       }, "Received verdict for notification");
 
       if (!shouldPublishNotification(result, env.INTERVENTION_CONFIDENCE_THRESHOLD)) {
@@ -248,18 +254,33 @@ async function bootstrap() {
           sessionId: result.sessionId,
           verdict: result.verdict,
           confidence: result.confidence,
+          speakerRole: result.speakerRole,
           threshold: env.INTERVENTION_CONFIDENCE_THRESHOLD
         }, "Verdict did not meet intervention criteria");
+        return;
+      }
+
+      // V2: rate-limit check
+      const now = Date.now();
+      const lastAt = lastInterventionAtMs.get(result.sessionId) ?? 0;
+      if (now - lastAt < INTERVENTION_RATE_LIMIT_MS) {
+        logger.info({
+          sessionId: result.sessionId,
+          msSinceLast: now - lastAt,
+          rateLimitMs: INTERVENTION_RATE_LIMIT_MS
+        }, "Intervention rate-limited — dropped");
         return;
       }
 
       try {
         const message = createInterventionMessage(result);
         await xAddJson(redis, STREAM_NAMES.notificationsOutbound, message);
+        lastInterventionAtMs.set(result.sessionId, now);
         logger.info({
           sessionId: result.sessionId,
           claimText: result.claimText,
-          verdict: result.verdict
+          verdict: result.verdict,
+          attributedTo: message.attributedTo
         }, "Published intervention notification");
       } catch (error) {
         logger.error({ err: error, sessionId: result.sessionId }, "Failed to publish intervention");

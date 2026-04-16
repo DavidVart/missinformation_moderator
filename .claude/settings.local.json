@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"---EXIT $?---\")",
+      "Bash(grep -n \"createAudioChunkEnvelope\" /Users/Jorge/Desktop/missinformation_moderator/services/ingest/src/*.ts)",
+      "Bash(npm install:*)",
+      "Bash(npx ng:*)",
+      "Bash(npx cap:*)",
+      "Bash(xcodebuild -workspace App.xcworkspace -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' build)",
+      "Bash(xcrun simctl:*)",
+      "Bash(open -a Simulator)"
+    ]
+  }
+}

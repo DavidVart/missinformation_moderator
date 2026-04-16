@@ -61,6 +61,9 @@ export function createAudioChunkEnvelope(
     chunkMs,
     sampleRate,
     language,
+    // V2: forward the speaker role (self | opponent) the client attributed to
+    // this chunk via its manual toggle.
+    speakerRole: payload.speakerRole,
     pcm16MonoBase64: payload.pcm16Mono
   });
 }

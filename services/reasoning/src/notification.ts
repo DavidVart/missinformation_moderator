@@ -2,11 +2,21 @@ import type { ClaimVerificationResult } from "@project-veritas/contracts";
 import { interventionMessageSchema } from "@project-veritas/contracts";
 import { v4 as uuidv4 } from "uuid";
 
-export function shouldPublishNotification(result: ClaimVerificationResult, threshold: number) {
-  return (
-    ["false", "misleading"].includes(result.verdict) &&
-    result.confidence >= threshold
-  );
+/**
+ * V2: asymmetric confidence threshold.
+ * When the claim was attributed to the user's own voice (SELF), require a
+ * higher confidence to fire a correction — the user is much more annoyed if
+ * we wrongly flag their opinions than if we miss some of their own errors.
+ * Opponent claims use the baseline threshold (that's the whole point of the app).
+ */
+export function shouldPublishNotification(result: ClaimVerificationResult, baseThreshold: number) {
+  if (!["false", "misleading"].includes(result.verdict)) {
+    return false;
+  }
+  const threshold = result.speakerRole === "self"
+    ? Math.min(0.95, baseThreshold + 0.10)
+    : baseThreshold;
+  return result.confidence >= threshold;
 }
 
 function normalizeCorrection(correction: string) {
@@ -53,6 +63,10 @@ export function createInterventionMessage(result: ClaimVerificationResult) {
       ...source,
       sourceType: source.sourceType ?? "web"
     })),
-    issuedAt: new Date().toISOString()
+    issuedAt: new Date().toISOString(),
+    // V2: record which speaker's claim this correction is about, so the UI
+    // can show "Opponent said: ..." or "You said: ..." and so the analytics
+    // service can attribute the correction to the correct speaker's score.
+    attributedTo: result.speakerRole ?? "unknown"
   });
 }

@@ -317,6 +317,16 @@ export async function recomputeSessionScore(pool: Pool, result: ClaimVerificatio
     await ensureUserProfile(pool, result.userId);
   }
 
+  // V2: if the session has been attributed (opponent identified), the primary
+  // user's score only reflects THEIR claims (speaker_role='self'). Otherwise
+  // all claims count (backwards-compatible with sessions that have no attribution).
+  const attributionRes = await pool.query(
+    `SELECT 1 FROM session_attributions WHERE session_id = $1 LIMIT 1`,
+    [result.sessionId]
+  );
+  const hasAttribution = (attributionRes.rowCount ?? 0) > 0;
+  const speakerFilter = hasAttribution ? "AND speaker_role = 'self'" : "";
+
   const aggregates = await pool.query(
     `
       SELECT
@@ -332,7 +342,7 @@ export async function recomputeSessionScore(pool: Pool, result: ClaimVerificatio
           END
         ), 0) AS repetition_penalty
       FROM analytics_claims
-      WHERE session_id = $1
+      WHERE session_id = $1 ${speakerFilter}
     `,
     [result.sessionId]
   );
@@ -407,8 +417,8 @@ export async function persistClaimAnalytics(pool: Pool, result: ClaimVerificatio
 
   await pool.query(
     `
-      INSERT INTO analytics_claims (claim_id, session_id, user_id, canonical_claim, verdict, confidence, penalty, topic_slug)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO analytics_claims (claim_id, session_id, user_id, canonical_claim, verdict, confidence, penalty, topic_slug, speaker_role)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (claim_id) DO NOTHING
     `,
     [
@@ -419,7 +429,8 @@ export async function persistClaimAnalytics(pool: Pool, result: ClaimVerificatio
       result.verdict,
       result.confidence,
       penalty,
-      topic.topicSlug
+      topic.topicSlug,
+      result.speakerRole ?? "unknown"
     ]
   );
 
@@ -749,4 +760,262 @@ export async function refreshSnapshots(pool: Pool) {
       ]
     );
   }
+}
+
+// ───────────────── V2: Speaker attribution & scoring ─────────────────
+
+/**
+ * Compute the opponent's score for a session — aggregates only claims with
+ * speaker_role='opponent'. Stored in the `opponent_session_scores` table.
+ * If the opponent is a known user, their score also appears on leaderboards
+ * (via the refreshSnapshots flow below).
+ */
+export async function recomputeOpponentSessionScore(
+  pool: Pool,
+  sessionId: string,
+  opponentUserId: string | null,
+  opponentPendingEmail: string | null
+) {
+  if (opponentUserId) {
+    await ensureUserProfile(pool, opponentUserId);
+  }
+
+  const aggregates = await pool.query(
+    `
+      SELECT
+        COALESCE(SUM(penalty), 0) AS penalty_total,
+        COUNT(*) FILTER (WHERE verdict = 'false') AS false_count,
+        COUNT(*) FILTER (WHERE verdict = 'misleading') AS misleading_count,
+        COUNT(*) AS verified_count,
+        COALESCE(SUM(
+          CASE
+            WHEN verdict = 'false' THEN GREATEST(penalty - (14 * confidence), 0)
+            WHEN verdict = 'misleading' THEN GREATEST(penalty - (8 * confidence), 0)
+            ELSE 0
+          END
+        ), 0) AS repetition_penalty
+      FROM analytics_claims
+      WHERE session_id = $1 AND speaker_role = 'opponent'
+    `,
+    [sessionId]
+  );
+
+  const row = aggregates.rows[0];
+  const accuracyScore = Math.max(0, Number((100 - Number(row?.penalty_total ?? 0)).toFixed(2)));
+  const falseCount = Number(row?.false_count ?? 0);
+  const misleadingCount = Number(row?.misleading_count ?? 0);
+  const verifiedCount = Number(row?.verified_count ?? 0);
+  const repetitionPenalty = Number(row?.repetition_penalty ?? 0);
+
+  await pool.query(
+    `
+      INSERT INTO opponent_session_scores (
+        session_id,
+        opponent_user_id,
+        opponent_pending_email,
+        accuracy_score,
+        false_claim_count,
+        misleading_claim_count,
+        verified_claim_count,
+        repetition_penalty,
+        eligible_for_leaderboard,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      ON CONFLICT (session_id)
+      DO UPDATE SET
+        opponent_user_id = EXCLUDED.opponent_user_id,
+        opponent_pending_email = EXCLUDED.opponent_pending_email,
+        accuracy_score = EXCLUDED.accuracy_score,
+        false_claim_count = EXCLUDED.false_claim_count,
+        misleading_claim_count = EXCLUDED.misleading_claim_count,
+        verified_claim_count = EXCLUDED.verified_claim_count,
+        repetition_penalty = EXCLUDED.repetition_penalty,
+        eligible_for_leaderboard = EXCLUDED.eligible_for_leaderboard,
+        updated_at = NOW()
+    `,
+    [
+      sessionId,
+      opponentUserId,
+      opponentPendingEmail,
+      accuracyScore,
+      falseCount,
+      misleadingCount,
+      verifiedCount,
+      repetitionPenalty,
+      // Eligible for leaderboard only when we have a known user
+      Boolean(opponentUserId)
+    ]
+  );
+
+  return {
+    sessionId,
+    accuracyScore,
+    falseClaimCount: falseCount,
+    misleadingClaimCount: misleadingCount,
+    verifiedClaimCount: verifiedCount,
+    repetitionPenalty
+  };
+}
+
+/**
+ * Attribute a finished session to an opponent (by userId or pending email).
+ * Creates/updates the session_attributions row and computes the opponent's score.
+ * If we can't find a user with the given email, we store the email in
+ * opponent_pending_email — when that user eventually signs up, a materialization
+ * step promotes their score.
+ */
+export async function attributeSessionToOpponent(
+  pool: Pool,
+  sessionId: string,
+  input: { opponentUserId?: string | undefined; opponentEmail?: string | undefined; opponentDisplayName?: string | undefined }
+) {
+  // Resolve opponentUserId from email if email was provided
+  let resolvedUserId = input.opponentUserId ?? null;
+  let pendingEmail: string | null = null;
+
+  if (!resolvedUserId && input.opponentEmail) {
+    const existing = await pool.query(
+      "SELECT user_id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1",
+      [input.opponentEmail]
+    );
+    if (existing.rowCount && existing.rows[0]) {
+      resolvedUserId = String(existing.rows[0].user_id);
+    } else {
+      pendingEmail = input.opponentEmail;
+    }
+  }
+
+  await pool.query(
+    `
+      INSERT INTO session_attributions (
+        session_id, user_id, opponent_user_id, opponent_pending_email, opponent_display_name, attributed_at
+      )
+      VALUES (
+        $1,
+        (SELECT user_id FROM sessions WHERE session_id = $1),
+        $2, $3, $4, NOW()
+      )
+      ON CONFLICT (session_id)
+      DO UPDATE SET
+        opponent_user_id = EXCLUDED.opponent_user_id,
+        opponent_pending_email = EXCLUDED.opponent_pending_email,
+        opponent_display_name = EXCLUDED.opponent_display_name,
+        attributed_at = NOW()
+    `,
+    [sessionId, resolvedUserId, pendingEmail, input.opponentDisplayName ?? null]
+  );
+
+  // Compute (and store) the opponent's score for this session.
+  const opponentScore = await recomputeOpponentSessionScore(pool, sessionId, resolvedUserId, pendingEmail);
+
+  return {
+    sessionId,
+    opponentUserId: resolvedUserId,
+    opponentPendingEmail: pendingEmail,
+    opponentAccuracyScore: opponentScore.accuracyScore
+  };
+}
+
+/**
+ * Search users by display name / email for the attribution modal.
+ * Only public-leaderboard users are exposed.
+ */
+export async function searchUsersForAttribution(pool: Pool, query: string, limit = 10) {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    return [] as Array<{ userId: string; displayName: string; email?: string; avatar?: string; school?: string }>;
+  }
+
+  const pattern = `%${trimmed.toLowerCase()}%`;
+  const result = await pool.query(
+    `
+      SELECT u.user_id, u.email, p.display_name, p.avatar, p.school
+      FROM users u
+      JOIN profiles p ON p.user_id = u.user_id
+      WHERE
+        LOWER(p.display_name) LIKE $1
+        OR LOWER(u.email) LIKE $1
+      ORDER BY
+        CASE WHEN LOWER(p.display_name) = $2 THEN 0 ELSE 1 END,
+        p.display_name ASC
+      LIMIT $3
+    `,
+    [pattern, trimmed.toLowerCase(), limit]
+  );
+
+  return result.rows.map((row) => ({
+    userId: String(row.user_id),
+    displayName: String(row.display_name),
+    email: row.email ? String(row.email) : undefined,
+    avatar: row.avatar ? String(row.avatar) : undefined,
+    school: row.school ? String(row.school) : undefined
+  }));
+}
+
+/**
+ * Materialize any pending opponent attributions that point at a newly
+ * signed-up user's email. Called from the profile/sync endpoint after we
+ * upsert the user row. This is what makes "invite by email" actually pay
+ * off — when the opponent eventually signs up, their pending scores get
+ * promoted to real leaderboard entries.
+ */
+export async function materializePendingAttributionsForUser(
+  pool: Pool,
+  userId: string,
+  email: string
+) {
+  // Find any session_attributions that referenced this email
+  const pendingAttrs = await pool.query(
+    `
+      SELECT session_id FROM session_attributions
+      WHERE LOWER(opponent_pending_email) = LOWER($1)
+        AND opponent_user_id IS NULL
+    `,
+    [email]
+  );
+
+  if (pendingAttrs.rowCount === 0) {
+    return { materializedCount: 0 };
+  }
+
+  let materializedCount = 0;
+  for (const row of pendingAttrs.rows) {
+    const sessionId = String(row.session_id);
+    await pool.query(
+      `UPDATE session_attributions SET opponent_user_id = $1, opponent_pending_email = NULL WHERE session_id = $2`,
+      [userId, sessionId]
+    );
+    await pool.query(
+      `UPDATE opponent_session_scores SET opponent_user_id = $1, opponent_pending_email = NULL, eligible_for_leaderboard = TRUE WHERE session_id = $2`,
+      [userId, sessionId]
+    );
+    materializedCount += 1;
+  }
+
+  return { materializedCount };
+}
+
+/**
+ * Store the user's voice enrollment sample (for future auto-diarization).
+ */
+export async function saveVoiceEnrollment(
+  pool: Pool,
+  userId: string,
+  input: { durationMs: number; sampleRate: number; pcm16Base64: string }
+) {
+  await pool.query(
+    `
+      INSERT INTO voice_enrollments (user_id, duration_ms, sample_rate, pcm16_base64, captured_at, updated_at)
+      VALUES ($1, $2, $3, $4, NOW(), NOW())
+      ON CONFLICT (user_id) DO UPDATE SET
+        duration_ms = EXCLUDED.duration_ms,
+        sample_rate = EXCLUDED.sample_rate,
+        pcm16_base64 = EXCLUDED.pcm16_base64,
+        updated_at = NOW()
+    `,
+    [userId, input.durationMs, input.sampleRate, input.pcm16Base64]
+  );
+
+  return { userId, enrolledAt: new Date().toISOString() };
 }

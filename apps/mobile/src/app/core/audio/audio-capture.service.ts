@@ -1,4 +1,5 @@
 import { Injectable } from "@angular/core";
+import type { SpeakerRole } from "@project-veritas/contracts";
 import { BehaviorSubject, Subject } from "rxjs";
 
 import { buildChunkPayload, calculateChunkSampleCount, mergeFloat32Arrays } from "./audio-utils";
@@ -6,13 +7,21 @@ import { buildChunkPayload, calculateChunkSampleCount, mergeFloat32Arrays } from
 const CHUNK_MS = 4000;
 const CHUNK_STEP_MS = 3000;
 const TARGET_SAMPLE_RATE = 16000;
+// V2 client-side VAD: if the peak normalized level stays below this for the
+// entire chunk, we consider it silent and skip emitting it. Saves bandwidth
+// + matches server-side silence gating.
+const SILENCE_PEAK_THRESHOLD = 0.03;
 
 export type EncodedAudioChunk = {
   seq: number;
   startedAt: string;
   endedAt: string;
   pcm16Mono: string;
+  speakerRole: SpeakerRole;
 };
+
+/** A provider of the current speaker role; invoked on every chunk emit. */
+export type SpeakerRoleProvider = () => SpeakerRole;
 
 @Injectable({ providedIn: "root" })
 export class AudioCaptureService {
@@ -26,9 +35,18 @@ export class AudioCaptureService {
   private sourceSamplesPerStep = calculateChunkSampleCount(TARGET_SAMPLE_RATE, CHUNK_STEP_MS);
   private suppressedUntilMs = 0;
   private sequence = 0;
+  /**
+   * V2: speaker role provider, set by app.component via startSession.
+   * Called once per chunk so a mid-session toggle takes effect immediately.
+   */
+  private speakerRoleProvider: SpeakerRoleProvider = () => "opponent";
 
   readonly chunks$ = new Subject<EncodedAudioChunk>();
   readonly levels$ = new BehaviorSubject<number>(0);
+
+  setSpeakerRoleProvider(provider: SpeakerRoleProvider) {
+    this.speakerRoleProvider = provider;
+  }
 
   async start() {
     this.sequence = 0;
@@ -93,6 +111,28 @@ export class AudioCaptureService {
 
         const chunkStartedAtMs: number = this.currentChunkStartedAtMs ?? Date.now();
         const chunkEndedAtMs: number = chunkStartedAtMs + CHUNK_MS;
+
+        // V2 client-side VAD: check the chunk's peak amplitude. If it never
+        // exceeds our silence threshold, skip this chunk entirely (don't send
+        // to the backend). Saves bandwidth + avoids paying Whisper to
+        // hallucinate on near-silent audio.
+        let peakAmplitude = 0;
+        for (let i = 0; i < chunkSamples.length; i += 1) {
+          const abs = Math.abs(chunkSamples[i] ?? 0);
+          if (abs > peakAmplitude) {
+            peakAmplitude = abs;
+          }
+        }
+
+        this.currentChunkStartedAtMs = chunkStartedAtMs + CHUNK_STEP_MS;
+
+        if (peakAmplitude < SILENCE_PEAK_THRESHOLD) {
+          // Silent chunk — bump the sequence but don't emit to preserve
+          // monotonic seq numbers across the session.
+          this.sequence += 1;
+          continue;
+        }
+
         const chunk = buildChunkPayload(
           chunkSamples,
           this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE,
@@ -103,9 +143,9 @@ export class AudioCaptureService {
         this.sequence += 1;
         this.chunks$.next({
           seq: this.sequence,
-          ...chunk
+          ...chunk,
+          speakerRole: this.speakerRoleProvider()
         });
-        this.currentChunkStartedAtMs = chunkStartedAtMs + CHUNK_STEP_MS;
       }
     };
 
@@ -141,7 +181,7 @@ export class AudioCaptureService {
         new Date(chunkStartedAtMs + durationMs).toISOString()
       );
       this.sequence += 1;
-      this.chunks$.next({ seq: this.sequence, ...chunk });
+      this.chunks$.next({ seq: this.sequence, ...chunk, speakerRole: this.speakerRoleProvider() });
     }
 
     this.mediaStream?.getTracks().forEach((track) => track.stop());

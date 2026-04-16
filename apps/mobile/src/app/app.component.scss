@@ -2631,3 +2631,215 @@
     width: 28rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   V2 DEBATE MODE — Speaker toggle + attribution styling
+   ═══════════════════════════════════════════════════════════════ */
+
+.speaker-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.85rem 1rem;
+  background: var(--rt-surface-raised);
+  border-radius: 1.35rem;
+  border: 1px solid var(--rt-border);
+  box-shadow: 0 12px 36px rgba(0, 51, 69, 0.08);
+  animation: fadeSlideIn 360ms var(--rt-ease-out) both;
+}
+
+.speaker-toggle__label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rt-muted-strong);
+}
+
+.speaker-toggle__pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border-radius: 0.95rem;
+  background: var(--rt-surface-muted);
+}
+
+.speaker-toggle__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.85rem;
+  padding: 0.6rem 0.4rem;
+  border-radius: 0.75rem;
+  border: 0;
+  background: transparent;
+  color: var(--rt-muted-strong);
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  transition:
+    background-color 220ms var(--rt-ease-out),
+    color 220ms var(--rt-ease-out),
+    transform 180ms var(--rt-spring),
+    box-shadow 220ms var(--rt-ease-out);
+}
+
+.speaker-toggle__pill ion-icon {
+  font-size: 1.15rem;
+}
+
+.speaker-toggle__pill:active {
+  transform: scale(0.96);
+}
+
+.speaker-toggle__pill--self.is-active {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(59, 130, 246, 0.95));
+  color: #fff;
+  box-shadow:
+    0 8px 18px rgba(37, 99, 235, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.speaker-toggle__pill--opponent.is-active {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95), rgba(249, 115, 22, 0.9));
+  color: #fff;
+  box-shadow:
+    0 8px 18px rgba(239, 68, 68, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+/* Intervention strip — attribution color cue */
+.intervention-strip.is-self {
+  border-left: 4px solid var(--rt-primary);
+}
+.intervention-strip.is-opponent {
+  border-left: 4px solid var(--rt-danger);
+}
+
+/* Correction toast — attribution color cue */
+.correction-toast.is-self {
+  border-top: 3px solid var(--rt-primary);
+}
+.correction-toast.is-opponent {
+  border-top: 3px solid var(--rt-danger);
+}
+
+/* Post-session attribution modal */
+.attribution-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.attribution-subtitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--rt-muted-strong);
+}
+
+.attribution-field {
+  margin-top: 0.15rem;
+}
+
+.attribution-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+
+.attribution-result-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--rt-border);
+  border-radius: 0.85rem;
+  background: var(--rt-surface-raised);
+  font: inherit;
+  color: var(--rt-text);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms var(--rt-spring), border-color 180ms var(--rt-ease-out);
+}
+
+.attribution-result-row:active {
+  transform: scale(0.98);
+}
+
+.attribution-result-row:hover:not(:disabled) {
+  border-color: var(--rt-primary);
+}
+
+.attribution-avatar {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 999px;
+  background: var(--rt-surface-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rt-muted-strong);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.attribution-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attribution-result-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.attribution-result-text strong {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--rt-text);
+}
+
+.attribution-result-text span {
+  font-size: 0.78rem;
+  color: var(--rt-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attribution-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.8rem 0 0.2rem;
+}
+
+.attribution-empty p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--rt-muted-strong);
+}
+
+.attribution-hint {
+  font-size: 0.72rem !important;
+  color: var(--rt-muted) !important;
+  font-style: italic;
+}
+
+.attribution-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.2rem;
+}

@@ -207,6 +207,14 @@ export function createTranscriptSegment(
   text: string,
   confidence?: number
 ) {
+  // V2: derive a human-friendly speakerLabel from the manual speakerRole.
+  const speakerRole = chunk.speakerRole ?? "unknown";
+  const speakerLabel = speakerRole === "self"
+    ? "You"
+    : speakerRole === "opponent"
+      ? "Opponent"
+      : "unknown";
+
   return transcriptSegmentSchema.parse({
     segmentId: uuidv4(),
     sessionId: chunk.sessionId,
@@ -217,7 +225,49 @@ export function createTranscriptSegment(
     text,
     startedAt: chunk.startedAt,
     endedAt: chunk.endedAt,
-    speakerLabel: "unknown",
+    speakerLabel,
+    speakerRole,
     confidence
   });
+}
+
+/**
+ * V2 VAD gating — decide whether a chunk is worth transcribing.
+ *
+ * We compute the mean absolute sample value and peak sample value of the
+ * decoded PCM16 audio. If both are below our silence thresholds, we skip
+ * the chunk (don't call Whisper). This saves API cost and — more importantly —
+ * prevents Whisper from hallucinating transcripts on silent/low-energy audio
+ * ("Thanks for watching!", "Please subscribe." are common Whisper ghosts).
+ */
+export function isChunkSilent(chunk: AudioChunkEnvelope): boolean {
+  const pcm16Bytes = Buffer.from(chunk.pcm16MonoBase64, "base64");
+  // PCM16 mono: each sample is 2 bytes, little-endian signed.
+  const totalSamples = pcm16Bytes.byteLength / 2;
+  if (totalSamples === 0) {
+    return true;
+  }
+
+  let sumAbs = 0;
+  let peakAbs = 0;
+
+  // Sample every ~10th frame for speed — 4s @ 16kHz = 64k samples, reading
+  // every byte is unnecessary for a silence check.
+  const stride = 10;
+  let counted = 0;
+  for (let i = 0; i < pcm16Bytes.byteLength - 1; i += 2 * stride) {
+    const sample = pcm16Bytes.readInt16LE(i);
+    const absValue = Math.abs(sample);
+    sumAbs += absValue;
+    if (absValue > peakAbs) {
+      peakAbs = absValue;
+    }
+    counted += 1;
+  }
+
+  const meanAbs = sumAbs / Math.max(counted, 1);
+  // INT16 max is 32768. Mean abs < 80 (~0.0024 normalized) means near-silence.
+  // Peak < 1500 (~0.046) means no speech transients.
+  const isSilent = meanAbs < 80 && peakAbs < 1500;
+  return isSilent;
 }

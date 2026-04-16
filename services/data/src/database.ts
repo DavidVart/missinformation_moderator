@@ -230,6 +230,61 @@ async function bootstrapSchema(pool: Pool) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    -- ───────────────── V2 Debate Mode: speaker attribution ─────────────────
+
+    -- Speaker role on individual claims / segments (self | opponent | unknown).
+    ALTER TABLE transcript_segments ADD COLUMN IF NOT EXISTS speaker_role TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE claims ADD COLUMN IF NOT EXISTS speaker_role TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE analytics_claims ADD COLUMN IF NOT EXISTS speaker_role TEXT NOT NULL DEFAULT 'unknown';
+    ALTER TABLE interventions ADD COLUMN IF NOT EXISTS attributed_to TEXT NOT NULL DEFAULT 'unknown';
+
+    -- Per-session attribution: who was the user debating?
+    CREATE TABLE IF NOT EXISTS session_attributions (
+      session_id TEXT PRIMARY KEY,
+      user_id TEXT,                         -- the primary user (session owner)
+      opponent_user_id TEXT,                -- filled when opponent is a known Real Talk user
+      opponent_pending_email TEXT,          -- filled when opponent is invited by email but not yet signed up
+      opponent_display_name TEXT,           -- what the user typed for the opponent
+      attributed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS session_attributions_opponent_idx
+      ON session_attributions (opponent_user_id);
+    CREATE INDEX IF NOT EXISTS session_attributions_pending_email_idx
+      ON session_attributions (opponent_pending_email);
+
+    -- Opponent scores for a specific session.
+    -- A session can produce two score rows: one for the primary user (speaker_role='self'),
+    -- one for the opponent (speaker_role='opponent'). Primary user row lives in session_scores.
+    CREATE TABLE IF NOT EXISTS opponent_session_scores (
+      session_id TEXT NOT NULL,
+      opponent_user_id TEXT,
+      opponent_pending_email TEXT,
+      accuracy_score REAL NOT NULL,
+      false_claim_count INTEGER NOT NULL DEFAULT 0,
+      misleading_claim_count INTEGER NOT NULL DEFAULT 0,
+      verified_claim_count INTEGER NOT NULL DEFAULT 0,
+      repetition_penalty REAL NOT NULL DEFAULT 0,
+      eligible_for_leaderboard BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (session_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS opponent_session_scores_pending_email_idx
+      ON opponent_session_scores (opponent_pending_email);
+    CREATE INDEX IF NOT EXISTS opponent_session_scores_user_idx
+      ON opponent_session_scores (opponent_user_id);
+
+    -- Voice enrollment samples (for future auto-diarization).
+    -- Stored inline as base64-encoded PCM16 for now; can be moved to object storage later.
+    CREATE TABLE IF NOT EXISTS voice_enrollments (
+      user_id TEXT PRIMARY KEY,
+      duration_ms INTEGER NOT NULL,
+      sample_rate INTEGER NOT NULL DEFAULT 16000,
+      pcm16_base64 TEXT NOT NULL,
+      captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 }
 
@@ -265,8 +320,8 @@ export async function persistSessionEvent(pool: Pool, event: SessionEvent) {
 export async function persistTranscriptSegment(pool: Pool, segment: TranscriptSegment) {
   await pool.query(
     `
-      INSERT INTO transcript_segments (segment_id, session_id, device_id, user_id, mode, seq, text, started_at, ended_at, speaker_label, speaker_id, confidence)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      INSERT INTO transcript_segments (segment_id, session_id, device_id, user_id, mode, seq, text, started_at, ended_at, speaker_label, speaker_id, speaker_role, confidence)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       ON CONFLICT (segment_id) DO NOTHING
     `,
     [
@@ -281,6 +336,7 @@ export async function persistTranscriptSegment(pool: Pool, segment: TranscriptSe
       segment.endedAt,
       segment.speakerLabel,
       segment.speakerId ?? null,
+      segment.speakerRole ?? "unknown",
       segment.confidence ?? null
     ]
   );
@@ -289,8 +345,8 @@ export async function persistTranscriptSegment(pool: Pool, segment: TranscriptSe
 export async function persistClaimVerification(pool: Pool, result: ClaimVerificationResult) {
   await pool.query(
     `
-      INSERT INTO claims (claim_id, session_id, user_id, mode, claim_text, verdict, confidence, correction, checked_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO claims (claim_id, session_id, user_id, mode, claim_text, verdict, confidence, correction, checked_at, speaker_role)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (claim_id)
       DO UPDATE SET
         user_id = EXCLUDED.user_id,
@@ -298,7 +354,8 @@ export async function persistClaimVerification(pool: Pool, result: ClaimVerifica
         verdict = EXCLUDED.verdict,
         confidence = EXCLUDED.confidence,
         correction = EXCLUDED.correction,
-        checked_at = EXCLUDED.checked_at
+        checked_at = EXCLUDED.checked_at,
+        speaker_role = EXCLUDED.speaker_role
     `,
     [
       result.claimId,
@@ -309,7 +366,8 @@ export async function persistClaimVerification(pool: Pool, result: ClaimVerifica
       result.verdict,
       result.confidence,
       result.correction,
-      result.checkedAt
+      result.checkedAt,
+      result.speakerRole ?? "unknown"
     ]
   );
 
@@ -336,8 +394,8 @@ export async function persistClaimVerification(pool: Pool, result: ClaimVerifica
 export async function persistIntervention(pool: Pool, message: InterventionMessage) {
   await pool.query(
     `
-      INSERT INTO interventions (message_id, claim_id, session_id, user_id, mode, verdict, confidence, correction, issued_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO interventions (message_id, claim_id, session_id, user_id, mode, verdict, confidence, correction, issued_at, attributed_to)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (message_id) DO NOTHING
     `,
     [
@@ -349,7 +407,8 @@ export async function persistIntervention(pool: Pool, message: InterventionMessa
       message.verdict,
       message.confidence,
       message.correction,
-      message.issuedAt
+      message.issuedAt,
+      message.attributedTo ?? "unknown"
     ]
   );
 }

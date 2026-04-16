@@ -1,5 +1,5 @@
 import { Injectable } from "@angular/core";
-import { interventionMessageSchema, SessionMode, transcriptSegmentSchema } from "@project-veritas/contracts";
+import { interventionMessageSchema, SessionMode, type SpeakerRole, transcriptSegmentSchema } from "@project-veritas/contracts";
 import { BehaviorSubject, Subject } from "rxjs";
 import { io, Socket } from "socket.io-client";
 import { environment } from "../../../environments/environment";
@@ -122,6 +122,8 @@ export class MonitoringSocketService {
     startedAt: string;
     endedAt: string;
     pcm16Mono: string;
+    /** V2: which speaker (self | opponent) this chunk is attributed to. */
+    speakerRole: SpeakerRole;
   }) {
     const ack = await this.emitWithAck("audio:chunk", payload);
 

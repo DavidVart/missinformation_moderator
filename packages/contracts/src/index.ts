@@ -12,6 +12,10 @@ export type SessionMode = z.infer<typeof sessionModeSchema>;
 export const verdictSchema = z.enum(["true", "false", "misleading", "unverified"]);
 export const leaderboardVisibilitySchema = z.enum(["private", "public"]);
 
+/** V2 Debate Mode: which speaker produced a given audio chunk / segment. */
+export const speakerRoleSchema = z.enum(["self", "opponent", "unknown"]);
+export type SpeakerRole = z.infer<typeof speakerRoleSchema>;
+
 export const topicSlugSchema = z.enum([
   "politics",
   "economics",
@@ -101,7 +105,8 @@ export const socketAudioChunkPayloadSchema = z.object({
   seq: z.number().int().nonnegative(),
   startedAt: z.string(),
   endedAt: z.string(),
-  pcm16Mono: z.string().min(1)
+  pcm16Mono: z.string().min(1),
+  speakerRole: speakerRoleSchema.default("opponent")
 });
 
 export type SocketAudioChunkPayload = z.infer<typeof socketAudioChunkPayloadSchema>;
@@ -118,6 +123,7 @@ export const audioChunkEnvelopeSchema = z.object({
   chunkMs: z.number().int().positive(),
   sampleRate: z.number().int().positive(),
   language: z.string().min(2).max(8).optional(),
+  speakerRole: speakerRoleSchema.default("opponent"),
   pcm16MonoBase64: z.string().min(1)
 });
 
@@ -135,6 +141,7 @@ export const transcriptSegmentSchema = z.object({
   endedAt: z.string(),
   speakerLabel: z.string().default("unknown"),
   speakerId: z.string().optional(),
+  speakerRole: speakerRoleSchema.default("unknown"),
   confidence: z.number().min(0).max(1).optional()
 });
 
@@ -150,7 +157,8 @@ export const claimAssessmentSchema = z.object({
   query: z.string(),
   isVerifiable: z.boolean(),
   confidence: z.number().min(0).max(1),
-  rationale: z.string()
+  rationale: z.string(),
+  speakerRole: speakerRoleSchema.default("unknown")
 });
 
 export type ClaimAssessment = z.infer<typeof claimAssessmentSchema>;
@@ -166,7 +174,8 @@ export const claimVerificationResultSchema = z.object({
   confidence: z.number().min(0).max(1),
   correction: z.string(),
   sources: z.array(sourceCitationSchema),
-  checkedAt: z.string()
+  checkedAt: z.string(),
+  speakerRole: speakerRoleSchema.default("unknown")
 });
 
 export type ClaimVerificationResult = z.infer<typeof claimVerificationResultSchema>;
@@ -182,7 +191,9 @@ export const interventionMessageSchema = z.object({
   confidence: z.number().min(0).max(1),
   correction: z.string(),
   sources: z.array(sourceCitationSchema),
-  issuedAt: z.string()
+  issuedAt: z.string(),
+  /** V2: which speaker's claim this correction is attributed to. */
+  attributedTo: speakerRoleSchema.default("unknown")
 });
 
 export type InterventionMessage = z.infer<typeof interventionMessageSchema>;
@@ -380,3 +391,56 @@ export function parseStreamPayload<TSchema extends z.ZodTypeAny>(
 ): z.output<TSchema> {
   return schema.parse(JSON.parse(value));
 }
+
+// ───────────────── V2 Debate Mode — Speaker attribution ─────────────────
+
+/** Request: enroll the user's voice (10-second sample) for future auto-diarization. */
+export const voiceEnrollmentPayloadSchema = z.object({
+  userId: z.string().min(1),
+  durationMs: z.number().int().positive().max(30000),
+  sampleRate: z.literal(16000),
+  pcm16MonoBase64: z.string().min(1)
+});
+export type VoiceEnrollmentPayload = z.infer<typeof voiceEnrollmentPayloadSchema>;
+
+export const voiceEnrollmentResponseSchema = z.object({
+  ok: z.boolean(),
+  userId: z.string(),
+  enrolledAt: z.string()
+});
+export type VoiceEnrollmentResponse = z.infer<typeof voiceEnrollmentResponseSchema>;
+
+/** Request: attribute a finished debate session to an opponent. */
+export const sessionAttributionPayloadSchema = z.object({
+  opponentUserId: z.string().optional(),
+  opponentEmail: z.string().email().optional(),
+  opponentDisplayName: z.string().optional()
+}).refine(
+  (data) => !!(data.opponentUserId || data.opponentEmail),
+  { message: "Either opponentUserId or opponentEmail must be provided" }
+);
+export type SessionAttributionPayload = z.infer<typeof sessionAttributionPayloadSchema>;
+
+export const sessionAttributionResponseSchema = z.object({
+  ok: z.boolean(),
+  sessionId: z.string(),
+  opponentUserId: z.string().nullable(),
+  opponentPendingEmail: z.string().nullable(),
+  opponentAccuracyScore: z.number().min(0).max(100).nullable()
+});
+export type SessionAttributionResponse = z.infer<typeof sessionAttributionResponseSchema>;
+
+/** Response: user search results for the post-session attribution modal. */
+export const userSearchResultSchema = z.object({
+  userId: z.string(),
+  displayName: z.string(),
+  email: z.string().email().optional(),
+  avatar: z.string().url().optional(),
+  school: z.string().optional()
+});
+export type UserSearchResult = z.infer<typeof userSearchResultSchema>;
+
+export const userSearchResponseSchema = z.object({
+  results: z.array(userSearchResultSchema)
+});
+export type UserSearchResponse = z.infer<typeof userSearchResponseSchema>;

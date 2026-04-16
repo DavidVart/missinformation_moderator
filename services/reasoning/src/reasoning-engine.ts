@@ -284,10 +284,15 @@ export function createReasoningEngine(config: {
   }
 
   const claimPrompt = PromptTemplate.fromTemplate(
-    `You are a factual claim detector.\n` +
+    `You are a factual claim detector for a two-person debate fact-checker.\n` +
       `Review the transcript and decide whether it contains one clear, verifiable factual claim.\n` +
+      `Each line is prefixed with the speaker role ([SELF] or [OPPONENT]).\n` +
       `Ignore filler words, partial fragments, and repeated restatements of the same claim.\n` +
       `Only return a claim when it can stand on its own as a distinct factual assertion.\n` +
+      `Do NOT flag clear opinions ("I think...", "I believe...", "In my view..."), rhetorical questions,\n` +
+      `or hypotheticals. Focus on verifiable assertions of fact — names, dates, numbers, events, causal claims.\n` +
+      `If the claim is attributed to [SELF], apply stricter scrutiny — only flag objectively verifiable statements,\n` +
+      `never personal opinions or first-person anecdotes.\n` +
       `Respond only using the requested structured schema.\n\nTranscript:\n{transcript}`
   );
 
@@ -309,7 +314,15 @@ export function createReasoningEngine(config: {
 
   return {
     async assessWindow(sessionId, transcriptWindow) {
-      const transcriptText = transcriptWindow.map((segment) => segment.text).join(" ");
+      // V2: include speaker role in each line so the LLM can apply asymmetric
+      // scrutiny (strict for SELF, normal for OPPONENT).
+      const transcriptText = transcriptWindow
+        .map((segment) => {
+          const role = (segment.speakerRole ?? "unknown").toUpperCase();
+          return `[${role}] ${segment.text}`;
+        })
+        .join("\n");
+
       const result = await claimChain.invoke({
         transcript: transcriptText
       });
@@ -317,6 +330,12 @@ export function createReasoningEngine(config: {
       if (!result.isVerifiable || !result.claimText.trim()) {
         return null;
       }
+
+      // Attribute the claim to the speaker of the most recent segment (the one
+      // that actually completed the claim). Fallback: whichever speaker has
+      // the most content in the window.
+      const latestSegment = transcriptWindow.at(-1);
+      const speakerRole = latestSegment?.speakerRole ?? "unknown";
 
       return claimAssessmentSchema.parse({
         claimId: uuidv4(),
@@ -328,7 +347,8 @@ export function createReasoningEngine(config: {
         query: result.query || result.claimText,
         isVerifiable: result.isVerifiable,
         confidence: result.confidence,
-        rationale: result.rationale
+        rationale: result.rationale,
+        speakerRole
       });
     },
     async verifyClaim(assessment, citations) {
@@ -352,7 +372,8 @@ export function createReasoningEngine(config: {
         confidence: result.confidence,
         correction: result.correction,
         sources: citations.map((citation) => sourceCitationSchema.parse(citation)),
-        checkedAt: new Date().toISOString()
+        checkedAt: new Date().toISOString(),
+        speakerRole: assessment.speakerRole ?? "unknown"
       });
     }
   };
@@ -422,7 +443,8 @@ function createMockReasoningEngine(): ReasoningEngine {
         query: claimText,
         isVerifiable: true,
         confidence: 0.77,
-        rationale: "Heuristic mock detector found a declarative factual statement."
+        rationale: "Heuristic mock detector found a declarative factual statement.",
+        speakerRole: transcriptWindow.at(-1)?.speakerRole ?? "unknown"
       };
     },
     async verifyClaim(assessment) {
@@ -444,7 +466,8 @@ function createMockReasoningEngine(): ReasoningEngine {
           ? "That claim is incorrect. The Eiffel Tower is in Paris, and the Earth is an oblate spheroid."
           : "The claim could not be verified in mock mode.",
         sources: [],
-        checkedAt: new Date().toISOString()
+        checkedAt: new Date().toISOString(),
+        speakerRole: assessment.speakerRole ?? "unknown"
       };
     }
   };
