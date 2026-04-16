@@ -896,8 +896,9 @@ export class AppComponent implements OnDestroy {
     }
 
     const scheme = params.get("scheme") || "com.realtalk.mobile";
+    const returnUrl = `/?mobileAuth=1&scheme=${encodeURIComponent(scheme)}`;
     let handoffDone = false;
-    let signInOpened = false;
+    let signInTriggered = false;
 
     // React to Clerk ready/signed-in state changes.
     effect(() => {
@@ -911,9 +912,21 @@ export class AppComponent implements OnDestroy {
       if (this.auth.isSignedIn()) {
         handoffDone = true;
         void this.performMobileAuthRedirect(scheme);
-      } else if (!signInOpened) {
-        signInOpened = true;
-        void this.auth.openSignIn();
+      } else if (!signInTriggered) {
+        signInTriggered = true;
+        // Redirect the user directly to Clerk's full hosted sign-in page
+        // (with Google / Apple / X options), not the modal. After sign-in,
+        // Clerk brings them back to `/?mobileAuth=1&scheme=...` and this
+        // effect fires again with isSignedIn() === true → deep-link redirect.
+        const clerk = (globalThis as Record<string, unknown>)["Clerk"] as
+          | { redirectToSignIn?: (opts?: { afterSignInUrl?: string; afterSignUpUrl?: string }) => void }
+          | undefined;
+        if (clerk?.redirectToSignIn) {
+          clerk.redirectToSignIn({ afterSignInUrl: returnUrl, afterSignUpUrl: returnUrl });
+        } else {
+          // Fallback: trigger whatever Clerk flow the auth service provides.
+          void this.auth.openSignIn();
+        }
       }
     });
   }

@@ -93,6 +93,53 @@ ion-icon {
 /* ion-content no longer used — layout is plain flexbox */
 
 /* ═══════════════════════════════════════════════════════════════
+   MOBILE AUTH HANDOFF — hide main UI + show lightweight loader
+   (Used when the Vercel web app is opened from the native app via
+    ?mobileAuth=1 for Clerk sign-in before redirecting back.)
+   ═══════════════════════════════════════════════════════════════ */
+
+html.rt-mobile-auth-mode body > app-root {
+  visibility: hidden;
+}
+
+html.rt-mobile-auth-mode body::before {
+  content: "Signing you in…";
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rt-bg, #f0f4ff);
+  color: var(--rt-text, #0f172a);
+  font-family: "Manrope", "Inter", "Segoe UI", sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  z-index: 1;
+}
+
+html.rt-mobile-auth-mode body::after {
+  content: "";
+  position: fixed;
+  left: 50%;
+  top: calc(50% + 2.5rem);
+  width: 2rem;
+  height: 2rem;
+  margin-left: -1rem;
+  border: 3px solid rgba(37, 99, 235, 0.15);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: rt-mobile-auth-spin 0.8s linear infinite;
+  z-index: 1;
+}
+
+@keyframes rt-mobile-auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    REDUCED MOTION — respect accessibility preference
    ═══════════════════════════════════════════════════════════════ */
 
