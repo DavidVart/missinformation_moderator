@@ -169,19 +169,29 @@
                   <span>{{ transcriptSegments().length }}</span>
                 </div>
 
-                @if (unifiedTranscript().length > 0) {
-                  <div class="transcript-flow">
-                    @for (part of unifiedTranscript(); track $index) {
-                      @if (part.type === 'correction') {
-                        <span class="transcript-correction-mark" title="Correction: {{ part.content }}">
-                          <ion-icon name="warning-outline"></ion-icon>
-                        </span>
-                      } @else {
-                        <span class="transcript-text">{{ part.content }} </span>
-                      }
-                    }
-                    @if (isMonitoring()) {
-                      <span class="transcript-cursor" aria-hidden="true"></span>
+                @if (speakerTranscript().length > 0) {
+                  <div class="transcript-bubbles">
+                    @for (bubble of speakerTranscript(); track $index) {
+                      <div class="transcript-bubble"
+                           [class.transcript-bubble--self]="bubble.speaker === 'self'"
+                           [class.transcript-bubble--opponent]="bubble.speaker === 'opponent'"
+                           [class.transcript-bubble--unknown]="bubble.speaker === 'unknown'">
+                        <div class="transcript-bubble__header">
+                          <span class="transcript-bubble__speaker">{{ bubble.label }}</span>
+                        </div>
+                        <p class="transcript-bubble__text">
+                          {{ bubble.text }}
+                          @if ($last && isMonitoring()) {
+                            <span class="transcript-cursor" aria-hidden="true"></span>
+                          }
+                        </p>
+                        @for (correction of bubble.corrections; track $index) {
+                          <div class="transcript-bubble__correction">
+                            <ion-icon name="warning-outline"></ion-icon>
+                            <span>{{ correction }}</span>
+                          </div>
+                        }
+                      </div>
                     }
                   </div>
                 } @else {
@@ -329,6 +339,56 @@
                 </article>
               </div>
 
+              <!-- V2: Per-speaker breakdown (only show when we actually have
+                   speaker-labelled data, i.e. debate_live mode with toggles). -->
+              @if (speakerBreakdown().self.segments > 0 || speakerBreakdown().opponent.segments > 0) {
+                <article class="speaker-breakdown">
+                  <p class="card-kicker">Who said what</p>
+                  <div class="speaker-breakdown__grid">
+                    <div class="speaker-breakdown__side speaker-breakdown__side--self">
+                      <div class="speaker-breakdown__header">
+                        <ion-icon name="person-outline"></ion-icon>
+                        <span>You</span>
+                      </div>
+                      <div class="speaker-breakdown__metrics">
+                        <div>
+                          <span>Accuracy</span>
+                          <strong>{{ speakerBreakdown().self.accuracy }}%</strong>
+                        </div>
+                        <div>
+                          <span>Segments</span>
+                          <strong>{{ speakerBreakdown().self.segments }}</strong>
+                        </div>
+                        <div>
+                          <span>Corrections</span>
+                          <strong>{{ speakerBreakdown().self.corrections }}</strong>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="speaker-breakdown__side speaker-breakdown__side--opponent">
+                      <div class="speaker-breakdown__header">
+                        <ion-icon name="chatbubbles-outline"></ion-icon>
+                        <span>Opponent</span>
+                      </div>
+                      <div class="speaker-breakdown__metrics">
+                        <div>
+                          <span>Accuracy</span>
+                          <strong>{{ speakerBreakdown().opponent.accuracy }}%</strong>
+                        </div>
+                        <div>
+                          <span>Segments</span>
+                          <strong>{{ speakerBreakdown().opponent.segments }}</strong>
+                        </div>
+                        <div>
+                          <span>Corrections</span>
+                          <strong>{{ speakerBreakdown().opponent.corrections }}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              }
+
               <section class="stack-panel">
                 <div class="section-heading">
                   <h2>Corrections</h2>
@@ -338,9 +398,16 @@
                 @if (archiveFeed().length > 0) {
                   <div class="registry-list">
                     @for (intervention of archiveFeed(); track intervention.messageId) {
-                      <article class="registry-card">
+                      <article class="registry-card"
+                               [class.registry-card--self]="intervention.attributedTo === 'self'"
+                               [class.registry-card--opponent]="intervention.attributedTo === 'opponent'">
                         <div class="registry-meta">
                           <span>{{ intervention.issuedAt | date: 'shortTime' }}</span>
+                          @if (intervention.attributedTo === 'self') {
+                            <span class="registry-speaker-chip registry-speaker-chip--self">You said</span>
+                          } @else if (intervention.attributedTo === 'opponent') {
+                            <span class="registry-speaker-chip registry-speaker-chip--opponent">Opponent said</span>
+                          }
                           <ion-icon name="warning-outline"></ion-icon>
                         </div>
                         <div class="registry-block">

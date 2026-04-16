@@ -278,6 +278,129 @@ export class AppComponent implements OnDestroy {
     }
     return parts;
   });
+
+  /**
+   * V2: transcript grouped into speaker bubbles. Consecutive segments from the
+   * same speaker are merged into one bubble. Corrections are attached to the
+   * bubble they landed inside (so the speaker attribution reads naturally).
+   */
+  protected readonly speakerTranscript = computed(() => {
+    const segments = this.transcriptSegments();
+    const corrections = this.interventions();
+
+    if (segments.length === 0) {
+      return [] as Array<{
+        speaker: "self" | "opponent" | "unknown";
+        label: string;
+        text: string;
+        startedAt: string;
+        corrections: string[];
+      }>;
+    }
+
+    // Build lookup: correction timestamps → correction + attributedTo
+    const correctionEntries = corrections
+      .map((c) => ({
+        time: Date.parse(c.issuedAt),
+        text: c.correction,
+        attributedTo: c.attributedTo ?? "unknown"
+      }))
+      .filter((entry) => Number.isFinite(entry.time));
+
+    const bubbles: Array<{
+      speaker: "self" | "opponent" | "unknown";
+      label: string;
+      text: string;
+      startedAt: string;
+      endedAt: string;
+      corrections: string[];
+    }> = [];
+
+    for (const segment of segments) {
+      const speaker = (segment.speakerRole ?? "unknown") as "self" | "opponent" | "unknown";
+      const label = speaker === "self" ? "You" : speaker === "opponent" ? "Opponent" : "Speaker";
+
+      const last = bubbles.at(-1);
+      if (last && last.speaker === speaker) {
+        last.text = `${last.text} ${segment.text}`.trim();
+        last.endedAt = segment.endedAt ?? last.endedAt;
+      } else {
+        bubbles.push({
+          speaker,
+          label,
+          text: segment.text,
+          startedAt: segment.startedAt,
+          endedAt: segment.endedAt ?? segment.startedAt,
+          corrections: []
+        });
+      }
+    }
+
+    // Attach each correction to whichever bubble it landed inside (or the
+    // closest one by time if no direct overlap). Only attach when the
+    // correction's `attributedTo` matches the bubble's speaker — that way a
+    // correction on "self" speech doesn't dangle on an opponent bubble.
+    for (const entry of correctionEntries) {
+      let bestMatch: (typeof bubbles)[number] | null = null;
+      let bestDistance = Infinity;
+      for (const bubble of bubbles) {
+        if (bubble.speaker !== entry.attributedTo && entry.attributedTo !== "unknown") {
+          continue;
+        }
+        const bubbleStart = Date.parse(bubble.startedAt);
+        const bubbleEnd = Date.parse(bubble.endedAt);
+        const distance =
+          entry.time >= bubbleStart && entry.time <= bubbleEnd + 3000
+            ? 0
+            : Math.min(Math.abs(entry.time - bubbleStart), Math.abs(entry.time - bubbleEnd));
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestMatch = bubble;
+        }
+      }
+      if (bestMatch) {
+        bestMatch.corrections.push(entry.text);
+      }
+    }
+
+    return bubbles.map(({ endedAt: _endedAt, ...rest }) => rest);
+  });
+
+  /**
+   * V2: per-speaker stats for the post-debate Insights tab — segment count,
+   * correction count, accuracy for each speaker side.
+   */
+  protected readonly speakerBreakdown = computed(() => {
+    const segments = this.transcriptSegments();
+    const corrections = this.interventions();
+
+    const stats = {
+      self: { segments: 0, corrections: 0, accuracy: 100 },
+      opponent: { segments: 0, corrections: 0, accuracy: 100 }
+    };
+
+    for (const seg of segments) {
+      const role = seg.speakerRole;
+      if (role === "self") stats.self.segments += 1;
+      if (role === "opponent") stats.opponent.segments += 1;
+    }
+    for (const corr of corrections) {
+      const role = corr.attributedTo;
+      if (role === "self") stats.self.corrections += 1;
+      if (role === "opponent") stats.opponent.corrections += 1;
+    }
+
+    for (const side of [stats.self, stats.opponent] as const) {
+      if (side.segments === 0) {
+        side.accuracy = 100;
+      } else {
+        const ratio = Math.max(0, side.segments - side.corrections) / side.segments;
+        side.accuracy = Math.round(ratio * 100);
+      }
+    }
+
+    return stats;
+  });
   protected readonly archiveFeed = computed(() => this.interventions().slice(0, 8));
   protected readonly sessionMetrics = computed(() => ({
     duration: this.formatDurationLabel(),
