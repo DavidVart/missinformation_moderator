@@ -37,6 +37,33 @@ type InterventionHistoryResponse = {
   }>;
 };
 
+type SessionDetailResponse = {
+  session: {
+    session_id: string;
+    device_id: string;
+    user_id: string | null;
+    mode: string;
+    status: string;
+    started_at: string;
+    stopped_at: string | null;
+    chunk_ms: number;
+    sample_rate: number;
+  };
+  transcript: Array<{
+    segmentId: string;
+    deviceId: string;
+    userId: string | null;
+    mode: string;
+    seq: number;
+    text: string;
+    startedAt: string;
+    endedAt: string;
+    speakerLabel: string | null;
+    speakerId: string | null;
+    confidence: number | null;
+  }>;
+};
+
 function isCapacitorNative(): boolean {
   const cap = (globalThis as Record<string, unknown>)["Capacitor"] as
     | { isNativePlatform?: () => boolean }
@@ -90,5 +117,15 @@ export class HistoryApiService {
     }
 
     return response.json() as Promise<InterventionHistoryResponse>;
+  }
+
+  async getSessionDetail(sessionId: string): Promise<SessionDetailResponse> {
+    const response = await fetch(`${this.baseUrl}/sessions/${sessionId}`);
+
+    if (!response.ok) {
+      throw new Error(`Session detail request failed with status ${response.status}`);
+    }
+
+    return response.json() as Promise<SessionDetailResponse>;
   }
 }

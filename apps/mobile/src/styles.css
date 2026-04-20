@@ -49,6 +49,14 @@
   --rt-correction: #b8562a;
   --rt-correction-soft: rgba(184, 86, 42, 0.12);
 
+  /* ── Topic palette (stacked bar segments, darkest → lightest) ── */
+  --rt-topic-1: #1c1914;
+  --rt-topic-2: #5c4f3e;
+  --rt-topic-3: #8b7a63;
+  --rt-topic-4: #bfaf94;
+  --rt-topic-5: #d9ccb0;
+  --rt-topic-6: #e8e2d4;
+
   /* ── Verified (forest) ── */
   --rt-verified: #3e6b4d;
   --rt-verified-soft: rgba(62, 107, 77, 0.12);

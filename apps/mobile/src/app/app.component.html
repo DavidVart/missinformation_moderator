@@ -48,7 +48,7 @@
         @if (activeTab() === 'live') {
           <section class="session-view">
             <!-- ─── Idle state: serif headline + centered mic + mode picker ─── -->
-            @if (!isMonitoring() && !isPaused() && !hasSessionData()) {
+            @if (!isMonitoring() && !isPaused() && (!hasSessionData() || viewingPastSessionId())) {
               <div class="idle-block">
                 <h1 class="idle-headline">Tap to start listening.</h1>
                 <p class="idle-subhead">Real Talk will transcribe the conversation and flag verifiable claims.</p>
@@ -93,7 +93,7 @@
             }
 
             <!-- ─── Active / paused session state ─── -->
-            @if (isMonitoring() || isPaused() || hasSessionData()) {
+            @if (isMonitoring() || isPaused() || (hasSessionData() && !viewingPastSessionId())) {
               <!-- Metric tiles: Duration / Corrections / Segments -->
               <div class="session-glance">
                 @for (item of sessionGlanceItems(); track item.label) {
@@ -107,7 +107,7 @@
                 }
               </div>
 
-              <!-- V2 Debate Mode: Speaker toggle (You / Alex) -->
+              <!-- V2 Debate Mode: Speaker toggle (You / Opponent) -->
               @if (selectedMode() === 'debate_live' && isMonitoring()) {
                 <div class="speaker-toggle">
                   <div class="speaker-toggle__pills">
@@ -125,7 +125,7 @@
                       [class.is-active]="speakerState.currentSpeaker() === 'opponent'"
                       (click)="speakerState.setSpeaker('opponent')"
                       aria-label="Set current speaker to opponent">
-                      <span>Alex</span>
+                      <span>Opponent</span>
                     </button>
                   </div>
                 </div>
@@ -264,11 +264,6 @@
 
             <!-- ─── Insights Sub-tabs ─── -->
             <div class="sub-tab-bar">
-              <button class="sub-tab-pill" [class.is-active]="insightsSubTab() === 'session'"
-                type="button" (click)="selectInsightsSubTab('session')">
-                <ion-icon name="bar-chart-outline"></ion-icon>
-                <span>Session</span>
-              </button>
               <button class="sub-tab-pill" [class.is-active]="insightsSubTab() === 'topics'"
                 type="button" (click)="selectInsightsSubTab('topics')">
                 <ion-icon name="grid-outline"></ion-icon>
@@ -286,148 +281,197 @@
               </button>
             </div>
 
-            <!-- ─── Session sub-tab ─── -->
+            <!-- ─── Session sub-tab (editorial recap) ─── -->
             @if (insightsSubTab() === 'session') {
-              <div class="insight-grid">
-                <article class="snapshot-card">
-                  <div>
-                    <p class="card-kicker">Session Snapshot</p>
-                    <h2>Live correction intelligence</h2>
-                    <p class="card-copy">
-                      Based on the current session's transcript windows, intervention count, and live moderation flow.
-                    </p>
-                  </div>
-
-                  <div class="snapshot-metrics">
-                    <div>
-                      <span>Duration</span>
-                      <strong>{{ sessionMetrics().duration }}</strong>
-                    </div>
-                    <div>
-                      <span>Corrections</span>
-                      <strong>{{ sessionMetrics().corrections }}</strong>
-                    </div>
-                    <div>
-                      <span>Segments</span>
-                      <strong>{{ sessionMetrics().segments }}</strong>
-                    </div>
-                  </div>
-                </article>
-
-                <article class="density-card">
-                  <ion-icon name="analytics-outline"></ion-icon>
-                  <h2>Accuracy Rate</h2>
-                  <div class="accuracy-ring">
-                    <svg viewBox="0 0 80 80">
-                      <circle cx="40" cy="40" r="34" fill="none" stroke-width="7"/>
-                      <circle cx="40" cy="40" r="34" fill="none" stroke="var(--rt-secondary)" stroke-width="7"
-                        stroke-linecap="round"
-                        [style.stroke-dasharray]="accuracyRingDash()"
-                        stroke-dashoffset="0"
-                        transform="rotate(-90 40 40)"/>
-                    </svg>
-                    <span class="accuracy-ring__label">{{ accuracyPercent() }}%</span>
-                  </div>
-                  <p>
-                    {{ accuracyPercent() === 100 ? 'All claims verified as accurate so far.' : accuracyPercent() + '% of statements passed fact-check.' }}
-                  </p>
-                </article>
-              </div>
-
-              <!-- V2: Per-speaker breakdown (only show when we actually have
-                   speaker-labelled data, i.e. debate_live mode with toggles). -->
-              @if (speakerBreakdown().self.segments > 0 || speakerBreakdown().opponent.segments > 0) {
-                <article class="speaker-breakdown">
-                  <p class="card-kicker">Who said what</p>
-                  <div class="speaker-breakdown__grid">
-                    <div class="speaker-breakdown__side speaker-breakdown__side--self">
-                      <div class="speaker-breakdown__header">
-                        <ion-icon name="person-outline"></ion-icon>
-                        <span>You</span>
-                      </div>
-                      <div class="speaker-breakdown__metrics">
-                        <div>
-                          <span>Accuracy</span>
-                          <strong>{{ speakerBreakdown().self.accuracy }}%</strong>
-                        </div>
-                        <div>
-                          <span>Segments</span>
-                          <strong>{{ speakerBreakdown().self.segments }}</strong>
-                        </div>
-                        <div>
-                          <span>Corrections</span>
-                          <strong>{{ speakerBreakdown().self.corrections }}</strong>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="speaker-breakdown__side speaker-breakdown__side--opponent">
-                      <div class="speaker-breakdown__header">
-                        <ion-icon name="chatbubbles-outline"></ion-icon>
-                        <span>Opponent</span>
-                      </div>
-                      <div class="speaker-breakdown__metrics">
-                        <div>
-                          <span>Accuracy</span>
-                          <strong>{{ speakerBreakdown().opponent.accuracy }}%</strong>
-                        </div>
-                        <div>
-                          <span>Segments</span>
-                          <strong>{{ speakerBreakdown().opponent.segments }}</strong>
-                        </div>
-                        <div>
-                          <span>Corrections</span>
-                          <strong>{{ speakerBreakdown().opponent.corrections }}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              }
-
-              <section class="stack-panel">
-                <div class="section-heading">
-                  <h2>Corrections</h2>
-                  <span>{{ archiveFeed().length }}</span>
+              @if (loadingPastSession()) {
+                <div class="empty-panel empty-panel--waiting">
+                  <ion-spinner name="crescent"></ion-spinner>
+                  <span>Loading session…</span>
                 </div>
+              } @else if (!hasSessionData() && !sessionId()) {
+                <div class="empty-panel">
+                  No session selected — finish a live session or tap one from History.
+                </div>
+              } @else {
+                <!-- Editorial hero -->
+                <header class="session-hero">
+                  <p class="session-hero__kicker">{{ sessionHeroKicker() }}</p>
+                  <h1 class="session-hero__title">{{ sessionHeroTitle() }}</h1>
+                </header>
 
-                @if (archiveFeed().length > 0) {
-                  <div class="registry-list">
-                    @for (intervention of archiveFeed(); track intervention.messageId) {
-                      <article class="registry-card"
-                               [class.registry-card--self]="intervention.attributedTo === 'self'"
-                               [class.registry-card--opponent]="intervention.attributedTo === 'opponent'">
-                        <div class="registry-meta">
-                          <span>{{ intervention.issuedAt | date: 'shortTime' }}</span>
-                          @if (intervention.attributedTo === 'self') {
-                            <span class="registry-speaker-chip registry-speaker-chip--self">You said</span>
-                          } @else if (intervention.attributedTo === 'opponent') {
-                            <span class="registry-speaker-chip registry-speaker-chip--opponent">Opponent said</span>
-                          }
-                          <ion-icon name="warning-outline"></ion-icon>
+                <!-- Big accuracy card with split bar -->
+                <article class="accuracy-hero">
+                  <div class="accuracy-hero__number">
+                    <strong>{{ accuracyPercent() }}</strong><span>%</span>
+                  </div>
+                  <p class="accuracy-hero__label">SESSION ACCURACY</p>
+
+                  <div class="accuracy-split" aria-hidden="true">
+                    <span
+                      class="accuracy-split__self"
+                      [style.width.%]="speakerBreakdown().self.accuracy"></span>
+                  </div>
+                  <div class="accuracy-split-legend">
+                    <span>YOU · {{ speakerBreakdown().self.accuracy }}%</span>
+                    <span>{{ (sessionOpponentName() || 'OPPONENT').toUpperCase() }} · {{ speakerBreakdown().opponent.accuracy }}%</span>
+                  </div>
+
+                  <div class="accuracy-hero__meta">
+                    @if (sessionAccuracyDelta() !== null) {
+                      <span class="accuracy-hero__delta" [class.is-down]="(sessionAccuracyDelta() ?? 0) < 0">
+                        {{ (sessionAccuracyDelta() ?? 0) >= 0 ? '↑' : '↓' }} {{ sessionAccuracyDelta() }}pts from last session
+                      </span>
+                      <span class="accuracy-hero__meta-sep">·</span>
+                    }
+                    <span>{{ sessionMetrics().duration }} duration</span>
+                  </div>
+                </article>
+
+                <!-- Per-speaker breakdown cards -->
+                @if (speakerBreakdown().self.segments > 0 || speakerBreakdown().opponent.segments > 0) {
+                  <section class="breakdown-section">
+                    <p class="section-kicker">BREAKDOWN</p>
+                    <div class="breakdown-grid">
+                      <article class="breakdown-card">
+                        <div class="breakdown-card__header">
+                          <span class="breakdown-card__avatar">YO</span>
+                          <strong>You</strong>
                         </div>
-                        <div class="registry-block">
-                          <p class="registry-label">Statement</p>
-                          <p class="registry-claim">{{ intervention.claimText }}</p>
+                        <div class="breakdown-ring">
+                          <svg viewBox="0 0 72 72">
+                            <circle cx="36" cy="36" r="30" fill="none" stroke="var(--rt-bg-sunk)" stroke-width="5"/>
+                            <circle cx="36" cy="36" r="30" fill="none" stroke="var(--rt-ink)" stroke-width="5"
+                              stroke-linecap="round"
+                              [attr.stroke-dasharray]="(speakerBreakdown().self.accuracy / 100) * 188.5 + ' 188.5'"
+                              transform="rotate(-90 36 36)"/>
+                          </svg>
+                          <span class="breakdown-ring__label">{{ speakerBreakdown().self.accuracy }}%</span>
                         </div>
-                        <div class="registry-correction">
-                          <div>
-                            <p class="registry-label">Correction</p>
-                            <p>{{ intervention.correction }}</p>
-                          </div>
-                          <div class="registry-footer">
-                            <span>{{ intervention.sources.length }} source{{ intervention.sources.length === 1 ? '' : 's' }}</span>
-                            <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
-                          </div>
+                        <dl class="breakdown-card__stats">
+                          <div><dt>Segments</dt><dd>{{ speakerBreakdown().self.segments }}</dd></div>
+                          <div><dt>Corrections</dt><dd>{{ speakerBreakdown().self.corrections }}</dd></div>
+                        </dl>
+                      </article>
+
+                      <article class="breakdown-card">
+                        <div class="breakdown-card__header">
+                          <span class="breakdown-card__avatar breakdown-card__avatar--opponent">{{ (sessionOpponentName() || 'OP')[0]!.toUpperCase() }}</span>
+                          <strong>{{ sessionOpponentName() || 'Opponent' }}</strong>
                         </div>
+                        <div class="breakdown-ring">
+                          <svg viewBox="0 0 72 72">
+                            <circle cx="36" cy="36" r="30" fill="none" stroke="var(--rt-bg-sunk)" stroke-width="5"/>
+                            <circle cx="36" cy="36" r="30" fill="none" stroke="var(--rt-correction)" stroke-width="5"
+                              stroke-linecap="round"
+                              [attr.stroke-dasharray]="(speakerBreakdown().opponent.accuracy / 100) * 188.5 + ' 188.5'"
+                              transform="rotate(-90 36 36)"/>
+                          </svg>
+                          <span class="breakdown-ring__label">{{ speakerBreakdown().opponent.accuracy }}%</span>
+                        </div>
+                        <dl class="breakdown-card__stats">
+                          <div><dt>Segments</dt><dd>{{ speakerBreakdown().opponent.segments }}</dd></div>
+                          <div><dt>Corrections</dt><dd>{{ speakerBreakdown().opponent.corrections }}</dd></div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                }
+
+                <!-- Topics stacked bar + legend -->
+                @if (topicStackItems().length > 0) {
+                  <section class="topics-section">
+                    <p class="section-kicker">TOPICS</p>
+                    <div class="topic-stack-bar" aria-hidden="true">
+                      @for (item of topicStackItems(); track item.slug; let i = $index) {
+                        <span class="topic-stack-bar__seg"
+                              [style.width.%]="item.percent"
+                              [style.background]="'var(--rt-topic-' + (i + 1) + ', var(--rt-ink))'"></span>
+                      }
+                    </div>
+                    <ul class="topic-stack-list">
+                      @for (item of topicStackItems(); track item.slug; let i = $index) {
+                        <li>
+                          <span class="topic-stack-list__dot"
+                                [style.background]="'var(--rt-topic-' + (i + 1) + ', var(--rt-ink))'"></span>
+                          <span class="topic-stack-list__label">{{ item.label }}</span>
+                          <span class="topic-stack-list__value">{{ item.percent }}%</span>
+                        </li>
+                      }
+                    </ul>
+                  </section>
+                }
+
+                <!-- Corrections (numbered editorial list) -->
+                <section class="corrections-section">
+                  <p class="section-kicker">CORRECTIONS · {{ numberedCorrections().length }}</p>
+                  @if (numberedCorrections().length > 0) {
+                    @for (c of numberedCorrections(); track c.key) {
+                      <article class="correction-card"
+                               [class.correction-card--self]="c.role === 'self'"
+                               [class.correction-card--opponent]="c.role === 'opponent'">
+                        <header class="correction-card__header">
+                          <span class="correction-card__number">[{{ c.number }}]</span>
+                          <span class="correction-card__avatar"
+                                [class.correction-card__avatar--opponent]="c.role === 'opponent'">{{ c.speakerInitial }}</span>
+                          <span class="correction-card__speaker">{{ c.speakerLabel }}</span>
+                          <span class="correction-card__confidence" aria-label="Confidence">
+                            <span class="confidence-bars" aria-hidden="true">
+                              <span [class.is-on]="c.confidencePercent >= 33"></span>
+                              <span [class.is-on]="c.confidencePercent >= 66"></span>
+                              <span [class.is-on]="c.confidencePercent >= 85"></span>
+                            </span>
+                            {{ c.confidencePercent }}%
+                          </span>
+                        </header>
+                        <p class="correction-card__claim">"{{ c.claimText }}"</p>
+                        <p class="correction-card__fix">{{ c.correction }}</p>
+                        @if (c.sourceHost) {
+                          <p class="correction-card__source">
+                            <ion-icon name="document-text-outline"></ion-icon>
+                            {{ c.sourceHost }}
+                          </p>
+                        }
                       </article>
                     }
-                  </div>
-                } @else {
-                  <div class="empty-panel">
-                    No corrections yet. False or misleading claims will appear here.
-                  </div>
+                  } @else {
+                    <div class="empty-panel">
+                      No corrections in this session — all claims passed fact-check.
+                    </div>
+                  }
+                </section>
+
+                <!-- Historical trend line -->
+                @if (trendChartPoints().points.length >= 2) {
+                  <section class="trend-section">
+                    <p class="section-kicker">YOUR TREND · LAST {{ trendChartPoints().points.length }} SESSIONS</p>
+                    <div class="trend-chart">
+                      <svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+                        <path [attr.d]="trendChartPoints().path"
+                              fill="none" stroke="var(--rt-ink)" stroke-width="0.8"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                        @for (p of trendChartPoints().points; track $index) {
+                          <circle [attr.cx]="p.x" [attr.cy]="p.y" r="1.1" fill="var(--rt-ink)"/>
+                        }
+                      </svg>
+                      <div class="trend-chart__xlabels" aria-hidden="true">
+                        @for (label of trendChartPoints().labels; track $index) {
+                          <span>{{ label }}</span>
+                        }
+                      </div>
+                    </div>
+                    <div class="trend-chart__footer">
+                      @if (trendChartPoints().avg !== null) {
+                        <span>avg {{ trendChartPoints().avg }}%</span>
+                      }
+                      @if (trendChartPoints().delta !== null) {
+                        <span class="trend-chart__delta" [class.is-down]="(trendChartPoints().delta ?? 0) < 0">
+                          {{ (trendChartPoints().delta ?? 0) >= 0 ? '↑' : '↓' }} {{ trendChartPoints().delta }} pts
+                        </span>
+                      }
+                    </div>
+                  </section>
                 }
-              </section>
+              }
             }
 
             <!-- ─── Topics sub-tab ─── -->
@@ -605,7 +649,9 @@
                 } @else if (pastSessions().length > 0) {
                   <div class="history-list">
                     @for (session of pastSessions(); track session.sessionId) {
-                      <article class="history-card">
+                      <button class="history-card"
+                              type="button"
+                              (click)="openPastSession(session.sessionId)">
                         <div class="history-card__header">
                           <div class="history-card__mode">
                             <span class="history-status-dot" [class.is-active]="session.status === 'active'"></span>
@@ -631,7 +677,8 @@
                             <strong>{{ session.accuracyScore != null ? session.accuracyScore + '%' : '--' }}</strong>
                           </div>
                         </div>
-                      </article>
+                        <ion-icon class="history-card__chevron" name="chevron-forward-outline" aria-hidden="true"></ion-icon>
+                      </button>
                     }
                   </div>
                 } @else {

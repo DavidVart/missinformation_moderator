@@ -209,7 +209,7 @@ export class AppComponent implements OnDestroy {
   protected readonly rankingsLoading = signal(false);
 
   // ───────────────── Insights sub-tabs ─────────────────
-  protected readonly insightsSubTab = signal<InsightsSubTab>("session");
+  protected readonly insightsSubTab = signal<InsightsSubTab>("topics");
 
   // ───────────────── Monthly reflections ─────────────────
   protected readonly currentReflectionMonth = signal(this.getCurrentMonth());
@@ -397,7 +397,13 @@ export class AppComponent implements OnDestroy {
     };
 
     for (const seg of segments) {
-      const role = seg.speakerRole;
+      // Past sessions loaded via history only carry speakerLabel from the DB
+      // mapper — fall back to that so breakdown works in both flows.
+      const role = (seg.speakerRole && seg.speakerRole !== "unknown" ? seg.speakerRole : seg.speakerLabel) as
+        | "self"
+        | "opponent"
+        | "unknown"
+        | undefined;
       if (role === "self") stats.self.segments += 1;
       if (role === "opponent") stats.opponent.segments += 1;
     }
@@ -556,6 +562,145 @@ export class AppComponent implements OnDestroy {
     const [year, month] = this.currentReflectionMonth().split("-");
     const date = new Date(Number(year), Number(month) - 1);
     return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  });
+
+  // ─── Session Insights hero ───
+  // Opponent display name attached when a session has been attributed (or set
+  // locally after loadPastSession); falls back to "Opponent".
+  protected readonly sessionOpponentName = signal<string | null>(null);
+  // Tracks which past session is being viewed vs the current live one.
+  protected readonly viewingPastSessionId = signal<string | null>(null);
+  protected readonly loadingPastSession = signal(false);
+
+  /** Formatted kicker line: "SESSION · APR 16 · 18:42". */
+  protected readonly sessionHeroKicker = computed(() => {
+    const startedAtIso = this.sessionStartedAtIso();
+    if (!startedAtIso) return "SESSION SNAPSHOT";
+    const date = new Date(startedAtIso);
+    if (Number.isNaN(date.valueOf())) return "SESSION SNAPSHOT";
+    const month = date.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+    const day = date.getDate();
+    const time = date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return `SESSION · ${month} ${day} · ${time}`;
+  });
+
+  /** H1 for the session hero: "Debate with [Opponent Name]" when debate mode. */
+  protected readonly sessionHeroTitle = computed(() => {
+    const mode = this.selectedMode();
+    if (mode === "debate_live") {
+      const name = this.sessionOpponentName();
+      return name ? `Debate with ${name}` : "Debate Live";
+    }
+    return this.sessionModes.find((m) => m.mode === mode)?.title ?? "Session";
+  });
+
+  /** ISO start timestamp used by the kicker and duration derivation. */
+  protected readonly sessionStartedAtIso = computed(() => {
+    const ms = this.sessionStartedAtMs();
+    if (ms !== null) {
+      return new Date(ms).toISOString();
+    }
+    const firstSeg = this.transcriptSegments()[0];
+    return firstSeg?.startedAt ?? null;
+  });
+
+  /** Accuracy delta vs the previous session (past sessions list is sorted DESC). */
+  protected readonly sessionAccuracyDelta = computed(() => {
+    const sessions = this.pastSessions();
+    if (sessions.length < 2) return null;
+
+    const currentId = this.sessionId() ?? this.viewingPastSessionId();
+    // Find the index of the session we're viewing; compare to the next one.
+    const idx = currentId ? sessions.findIndex((s) => s.sessionId === currentId) : -1;
+    const currentScore = idx >= 0 ? sessions[idx]?.accuracyScore ?? null : this.accuracyPercent();
+    const previousScore = idx >= 0 ? sessions[idx + 1]?.accuracyScore ?? null : sessions[0]?.accuracyScore ?? null;
+
+    if (currentScore == null || previousScore == null) return null;
+    return Math.round(currentScore - previousScore);
+  });
+
+  /** Numbered corrections for the editorial list — [01], [02], … */
+  protected readonly numberedCorrections = computed(() => {
+    const list = this.interventions();
+    // Oldest first so [01] is the first correction chronologically.
+    const sorted = [...list].sort((a, b) => Date.parse(a.issuedAt) - Date.parse(b.issuedAt));
+    return sorted.map((intervention, index) => {
+      const number = String(index + 1).padStart(2, "0");
+      const hostname = intervention.sources[0]?.url
+        ? this.sourceHost(intervention.sources[0].url)
+        : null;
+      const role = (intervention.attributedTo ?? "unknown") as "self" | "opponent" | "unknown";
+      const speakerLabel =
+        role === "self" ? "You" : role === "opponent" ? (this.sessionOpponentName() ?? "Opponent") : "Unknown";
+      const speakerInitial = speakerLabel[0]?.toUpperCase() ?? "•";
+      return {
+        key: intervention.messageId,
+        number,
+        role,
+        speakerLabel,
+        speakerInitial,
+        confidencePercent: Math.round(intervention.confidence * 100),
+        claimText: intervention.claimText,
+        correction: intervention.correction,
+        sourceHost: hostname
+      };
+    });
+  });
+
+  /** Topics as percentage of total misinformation count — drives the stacked bar. */
+  protected readonly topicStackItems = computed(() => {
+    const topics = this.sessionTopics();
+    if (topics.length === 0) return [];
+    const total = topics.reduce((sum, t) => sum + Math.max(t.misinformationCount, 0), 0);
+    if (total === 0) {
+      // No misinformation — distribute equally so the bar still renders.
+      const equal = Math.floor(100 / topics.length);
+      return topics.map((t, i) => ({
+        slug: t.topicSlug,
+        label: this.topicLabel(t.topicSlug),
+        percent: i === topics.length - 1 ? 100 - equal * (topics.length - 1) : equal
+      }));
+    }
+    return topics.map((t) => ({
+      slug: t.topicSlug,
+      label: this.topicLabel(t.topicSlug),
+      percent: Math.round((t.misinformationCount / total) * 100)
+    }));
+  });
+
+  /** Up to 6 most recent sessions' accuracy scores, oldest-first, for the trend chart. */
+  protected readonly trendChartPoints = computed(() => {
+    const sessions = this.pastSessions()
+      .slice(0, 6)
+      .filter((s) => s.accuracyScore != null)
+      .reverse(); // oldest-first for left-to-right line
+
+    if (sessions.length === 0) return { points: [], path: "", labels: [], avg: null as number | null, delta: null as number | null };
+
+    const width = 100;
+    const height = 40;
+    const padX = 4;
+    const padY = 6;
+    const innerW = width - padX * 2;
+    const innerH = height - padY * 2;
+    const step = sessions.length > 1 ? innerW / (sessions.length - 1) : 0;
+
+    const points = sessions.map((s, i) => {
+      const score = Number(s.accuracyScore ?? 0);
+      const y = padY + innerH - (score / 100) * innerH;
+      const x = padX + step * i;
+      return { x, y, label: new Date(s.startedAt).toLocaleDateString("en-US", { month: "short" }).toUpperCase(), score };
+    });
+
+    const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+    const avgRaw = sessions.reduce((sum, s) => sum + Number(s.accuracyScore ?? 0), 0) / sessions.length;
+    const avg = Math.round(avgRaw);
+    const delta =
+      sessions.length >= 2
+        ? Math.round(Number(sessions[sessions.length - 1]?.accuracyScore ?? 0) - Number(sessions[0]?.accuracyScore ?? 0))
+        : null;
+
+    return { points, path, labels: points.map((p) => p.label), avg, delta };
   });
 
   private readonly deviceId = this.ensureDeviceId();
@@ -730,7 +875,12 @@ export class AppComponent implements OnDestroy {
       void this.loadRankings();
     }
     if (tab === "insights") {
-      this.insightsSubTab.set("session");
+      // Session sub-tab is only reachable after finishing a session (auto-routed
+      // in stopMonitoring) — otherwise default users to Topics instead of a
+      // stale Session snapshot.
+      if (this.insightsSubTab() === "session" && !this.hasSessionData()) {
+        this.insightsSubTab.set("topics");
+      }
       void this.loadMonthlyReflection();
       void this.loadSessionTopics();
     }
@@ -1097,6 +1247,77 @@ export class AppComponent implements OnDestroy {
     return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
   }
 
+  /**
+   * Open a past session in the Session Insights view. Pulls transcript +
+   * interventions + topics in parallel and hydrates the signals that feed
+   * the session-hero / breakdown / corrections / trend components.
+   */
+  protected async openPastSession(sessionId: string) {
+    if (this.isMonitoring() || this.isPaused()) {
+      // Don't clobber an in-flight live session.
+      return;
+    }
+
+    this.loadingPastSession.set(true);
+    this.viewingPastSessionId.set(sessionId);
+    this.sessionId.set(sessionId);
+    this.sessionStartedAtMs.set(null);
+    this.sessionOpponentName.set(null);
+
+    try {
+      const [detail, interventionsRes, topics] = await Promise.all([
+        this.historyApi.getSessionDetail(sessionId),
+        this.historyApi.getInterventions(sessionId),
+        this.analyticsApi.getSessionTopics(sessionId).catch(() => [])
+      ]);
+
+      // Normalize transcript segments: add speakerRole derived from speakerLabel
+      // (DB column) so the speakerBreakdown computed counts correctly.
+      const rawSegments = (detail.transcript ?? []) as Array<Record<string, unknown>>;
+      const segments: TranscriptSegment[] = rawSegments.map((seg) => {
+        const label = (seg["speakerLabel"] ?? "unknown") as string;
+        const role: "self" | "opponent" | "unknown" =
+          label === "self" || label === "opponent" ? label : "unknown";
+        return {
+          segmentId: String(seg["segmentId"] ?? ""),
+          sessionId,
+          deviceId: seg["deviceId"] ? String(seg["deviceId"]) : undefined,
+          userId: seg["userId"] ? String(seg["userId"]) : undefined,
+          mode: (seg["mode"] as SessionMode) ?? "debate_live",
+          seq: Number(seg["seq"] ?? 0),
+          text: String(seg["text"] ?? ""),
+          startedAt: String(seg["startedAt"] ?? ""),
+          endedAt: String(seg["endedAt"] ?? seg["startedAt"] ?? ""),
+          speakerLabel: label,
+          speakerId: seg["speakerId"] ? String(seg["speakerId"]) : undefined,
+          speakerRole: role,
+          confidence: seg["confidence"] != null ? Number(seg["confidence"]) : undefined
+        } satisfies TranscriptSegment;
+      });
+
+      this.transcriptSegments.set(segments);
+      this.interventions.set(interventionsRes.interventions as unknown as InterventionMessage[]);
+      this.sessionTopics.set(topics);
+
+      const sessionMeta = detail.session;
+      if (sessionMeta?.started_at) {
+        this.sessionStartedAtMs.set(Date.parse(sessionMeta.started_at));
+      }
+      if (sessionMeta?.mode) {
+        this.selectedMode.set(sessionMeta.mode as SessionMode);
+      }
+
+      this.activeTab.set("insights");
+      this.insightsSubTab.set("session");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load session";
+      this.micError.set(message);
+      this.viewingPastSessionId.set(null);
+    } finally {
+      this.loadingPastSession.set(false);
+    }
+  }
+
   protected sessionModeLabel(mode: string): string {
     const labels: Record<string, string> = {
       debate_live: "Debate Live",
@@ -1204,6 +1425,8 @@ export class AppComponent implements OnDestroy {
     this.isCorrectionOpen.set(false);
     this.isPaused.set(false);
     this.pausedAtMs.set(null);
+    this.viewingPastSessionId.set(null);
+    this.sessionOpponentName.set(null);
 
     try {
       const userId = this.auth.userId() ?? undefined;
@@ -1264,6 +1487,8 @@ export class AppComponent implements OnDestroy {
         this.isProcessingFinal.set(true);
         this.statusMessage.set("Processing final claims…");
         this.activeTab.set("insights");
+        // Just finished a session — surface the Session snapshot view.
+        this.insightsSubTab.set("session");
 
         const interventionCountBefore = this.interventions().length;
         const maxWaitMs = 18_000;
@@ -1358,6 +1583,8 @@ export class AppComponent implements OnDestroy {
         opponentDisplayName: displayName
       });
       this.attributionCompletedForSessionId.set(sessionId);
+      // Capture so the Session Insights hero can render "Debate with [Name]".
+      this.sessionOpponentName.set(displayName);
       this.closeAttributionModal();
     } catch (error) {
       this.attributionError.set(error instanceof Error ? error.message : "Failed to attribute");
