@@ -10,13 +10,13 @@ import { Haptics, ImpactStyle } from "@capacitor/haptics";
  * service reads this signal at emission time so mid-session toggles
  * take effect on the very next chunk.
  *
- * Default: "opponent" — the whole point of the app is to catch the OTHER
- * person's misinformation, so that's the mode we open in.
+ * Default: "self" — sessions open attributing to You, and the user taps the
+ * toggle to switch to the opponent when they start speaking.
  */
 @Injectable({ providedIn: "root" })
 export class SpeakerStateService {
   /** Current speaker for new audio chunks. */
-  readonly currentSpeaker = signal<SpeakerRole>("opponent");
+  readonly currentSpeaker = signal<SpeakerRole>("self");
 
   /**
    * Switch speaker. Triggers a light haptic pulse on native so the user feels
@@ -40,8 +40,8 @@ export class SpeakerStateService {
     await this.setSpeaker(next);
   }
 
-  /** Reset to default (opponent) when a session ends. */
+  /** Reset to default (self) when a session ends. */
   reset() {
-    this.currentSpeaker.set("opponent");
+    this.currentSpeaker.set("self");
   }
 }

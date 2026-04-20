@@ -1,105 +1,115 @@
 <ion-app>
   <div class="app-shell">
-    <!-- ═══════════ AURORA BACKGROUND ═══════════ -->
-    @if (activeTab() === 'live') {
-      <div class="aurora-bg" [class.aurora-bg--live]="isMonitoring()">
-        <div class="aurora-bg__orb aurora-bg__orb--1"></div>
-        <div class="aurora-bg__orb aurora-bg__orb--2"></div>
-        <div class="aurora-bg__orb aurora-bg__orb--3"></div>
-      </div>
-    }
 
     <div class="app-scroll-area">
-      <header class="topbar">
-        <div class="topbar__left">
-          <div class="avatar-chip">
-            <ion-icon name="pulse-outline"></ion-icon>
+      <!-- Context-aware header: Live tab shows kicker + title, other tabs show brand -->
+      @if (activeTab() === 'live') {
+        <header class="topbar topbar--contextual">
+          <div class="topbar__context">
+            @if (isMonitoring()) {
+              <span class="topbar__kicker">{{ selectedModeLabel() | uppercase }}</span>
+              <div class="topbar__title topbar__title--timer">
+                <span class="live-indicator is-live"></span>
+                <span>{{ sessionMetrics().duration }}</span>
+              </div>
+            } @else {
+              <span class="topbar__kicker">Real Talk</span>
+              <div class="topbar__title">{{ selectedModeLabel() }}</div>
+            }
           </div>
-        </div>
-
-        <p class="brand-name">Real Talk</p>
-
-        <div class="topbar__right">
-          <button class="topbar-profile-btn" type="button" (click)="selectTab('profile')">
+          <button class="topbar-profile-btn" type="button" (click)="selectTab('profile')" aria-label="Profile">
             @if (auth.isSignedIn() && auth.avatarUrl()) {
               <img [src]="auth.avatarUrl()" alt="Profile" />
             } @else {
               <ion-icon name="person-outline"></ion-icon>
             }
           </button>
-        </div>
-      </header>
+        </header>
+      } @else {
+        <header class="topbar">
+          <div class="topbar__left">
+            <div class="avatar-chip"></div>
+          </div>
+          <p class="brand-name">Real Talk</p>
+          <div class="topbar__right">
+            <button class="topbar-profile-btn" type="button" (click)="selectTab('profile')">
+              @if (auth.isSignedIn() && auth.avatarUrl()) {
+                <img [src]="auth.avatarUrl()" alt="Profile" />
+              } @else {
+                <ion-icon name="person-outline"></ion-icon>
+              }
+            </button>
+          </div>
+        </header>
+      }
 
       <main class="screen-body">
         <!-- ═══════════════════════════════════════════ LIVE TAB ═══════════════════════════════════════════ -->
         @if (activeTab() === 'live') {
           <section class="session-view">
-            <!-- ─── Idle state: centered mic hero ─── -->
-            @if (!isMonitoring() && !hasSessionData()) {
-              <div class="mic-hero">
-                <button
-                  class="mic-hero__button"
-                  type="button"
-                  [disabled]="isBusy()"
-                  (click)="toggleMonitoring()">
-                  @if (isBusy()) {
-                    <ion-spinner name="crescent"></ion-spinner>
-                  } @else {
-                    <ion-icon name="mic-outline"></ion-icon>
+            <!-- ─── Idle state: serif headline + centered mic + mode picker ─── -->
+            @if (!isMonitoring() && !isPaused() && !hasSessionData()) {
+              <div class="idle-block">
+                <h1 class="idle-headline">Tap to start listening.</h1>
+                <p class="idle-subhead">Real Talk will transcribe the conversation and flag verifiable claims.</p>
+
+                <div class="mic-hero">
+                  <button
+                    class="mic-hero__button"
+                    type="button"
+                    [disabled]="isBusy()"
+                    (click)="toggleMonitoring()">
+                    @if (isBusy()) {
+                      <ion-spinner name="crescent"></ion-spinner>
+                    } @else {
+                      <ion-icon name="mic-outline"></ion-icon>
+                    }
+                    <span class="mic-hero__pulse" aria-hidden="true"></span>
+                    <span class="mic-hero__pulse mic-hero__pulse--delayed" aria-hidden="true"></span>
+                  </button>
+                </div>
+
+                <!-- Horizontal mode picker (Live Debate / Silent Review / Scoring) -->
+                <div class="mode-card" role="tablist" aria-label="Session mode">
+                  @for (opt of visibleModes; track opt.mode) {
+                    <button
+                      class="mode-card__segment"
+                      [class.is-active]="selectedMode() === opt.mode"
+                      type="button"
+                      role="tab"
+                      [attr.aria-selected]="selectedMode() === opt.mode"
+                      (click)="selectSessionMode(opt.mode)">
+                      {{ opt.label }}
+                    </button>
                   }
-                  <span class="mic-hero__pulse" aria-hidden="true"></span>
-                  <span class="mic-hero__pulse mic-hero__pulse--delayed" aria-hidden="true"></span>
-                </button>
-
-                <p class="mic-hero__hint">Tap to start listening</p>
-              </div>
-
-              <button class="mode-card" type="button" (click)="openModeSheet()">
-                <div class="mode-card__left">
-                  <span class="mode-card__label">Active Mode</span>
-                  <strong class="mode-card__title">{{ selectedModeLabel() }}</strong>
                 </div>
-                <div class="mode-card__right">
-                  <span>Change</span>
-                  <ion-icon name="chevron-forward-outline"></ion-icon>
-                </div>
-              </button>
 
-              <div class="quick-stats">
-                <article class="quick-stat">
-                  <ion-icon name="analytics-outline"></ion-icon>
-                  <div>
-                    <span class="quick-stat__label">Accuracy</span>
-                    <strong class="quick-stat__value">{{ accuracyPercent() }}%</strong>
+                @if (micError()) {
+                  <div class="inline-alert inline-alert--error">
+                    {{ micError() }}
                   </div>
-                </article>
-                <article class="quick-stat">
-                  <ion-icon name="time-outline"></ion-icon>
-                  <div>
-                    <span class="quick-stat__label">Sessions</span>
-                    <strong class="quick-stat__value">{{ pastSessionsTotal() }}</strong>
-                  </div>
-                </article>
+                }
               </div>
-
-              @if (micError()) {
-                <div class="inline-alert inline-alert--error">
-                  {{ micError() }}
-                </div>
-              }
             }
 
             <!-- ─── Active / paused session state ─── -->
-            @if (isMonitoring() || hasSessionData()) {
-              <div class="session-status">
-                <span class="live-indicator" [class.is-live]="isMonitoring()"></span>
-                <span>{{ isMonitoring() ? 'Listening...' : statusMessage() }}</span>
+            @if (isMonitoring() || isPaused() || hasSessionData()) {
+              <!-- Metric tiles: Duration / Corrections / Segments -->
+              <div class="session-glance">
+                @for (item of sessionGlanceItems(); track item.label) {
+                  <article class="glance-pill" [class.is-emphasis]="item.emphasis">
+                    <strong>{{ item.value }}</strong>
+                    <span>{{ item.label }}</span>
+                    @if (item.sub) {
+                      <em class="glance-pill__sub">{{ item.sub }}</em>
+                    }
+                  </article>
+                }
               </div>
 
-              <!-- V2 Debate Mode: Speaker toggle (who is currently speaking?) -->
+              <!-- V2 Debate Mode: Speaker toggle (You / Alex) -->
               @if (selectedMode() === 'debate_live' && isMonitoring()) {
                 <div class="speaker-toggle">
-                  <span class="speaker-toggle__label">Speaking now</span>
                   <div class="speaker-toggle__pills">
                     <button
                       type="button"
@@ -107,7 +117,6 @@
                       [class.is-active]="speakerState.currentSpeaker() === 'self'"
                       (click)="speakerState.setSpeaker('self')"
                       aria-label="Set current speaker to You">
-                      <ion-icon name="person-outline"></ion-icon>
                       <span>You</span>
                     </button>
                     <button
@@ -115,96 +124,48 @@
                       class="speaker-toggle__pill speaker-toggle__pill--opponent"
                       [class.is-active]="speakerState.currentSpeaker() === 'opponent'"
                       (click)="speakerState.setSpeaker('opponent')"
-                      aria-label="Set current speaker to Opponent">
-                      <ion-icon name="chatbubbles-outline"></ion-icon>
-                      <span>Opponent</span>
+                      aria-label="Set current speaker to opponent">
+                      <span>Alex</span>
                     </button>
                   </div>
                 </div>
               }
 
-              <div class="session-glance">
-                @for (item of sessionGlanceItems(); track item.label) {
-                  <article class="glance-pill" [class.is-emphasis]="item.emphasis">
-                    <span>{{ item.label }}</span>
-                    <strong>{{ item.value }}</strong>
-                  </article>
-                }
-              </div>
-
-              <section class="wave-card" [style.--meter-glow]="activityLevel()">
-                <div class="wave-card__halo" aria-hidden="true"></div>
-                <div class="wave-shell">
-                  @for (bar of sessionWaveBars(); track $index) {
-                    <span class="wave-bar" [style.height.px]="bar"></span>
-                  }
-                </div>
-                <p class="wave-caption">
-                  @if (!isMonitoring()) {
-                    Session paused — resume to keep building context.
-                  } @else if (selectedMode() === 'debate_live') {
-                    Cross-checking rolling windows as you speak.
-                  } @else if (selectedMode() === 'conversation_score') {
-                    Recording — accuracy score when you stop.
-                  } @else if (selectedMode() === 'silent_review') {
-                    Capturing silently — review findings in Insights.
-                  } @else {
-                    Background capture active.
-                  }
-                </p>
-                <div class="capture-rail">
-                  <div class="capture-rail__track">
-                    <span [style.width.%]="captureProgress() * 100"></span>
-                  </div>
-                  <div class="capture-rail__meta">
-                    <span>Next window {{ nextWindowEta() }}</span>
-                    <span>{{ activityStatusLabel() }}</span>
-                  </div>
-                </div>
-              </section>
-
-              <section class="transcript-panel">
-                <div class="section-heading">
-                  <h2>Transcript</h2>
-                  <span>{{ transcriptSegments().length }}</span>
-                </div>
-
-                @if (speakerTranscript().length > 0) {
-                  <div class="transcript-bubbles">
-                    @for (bubble of speakerTranscript(); track $index) {
-                      <div class="transcript-bubble"
-                           [class.transcript-bubble--self]="bubble.speaker === 'self'"
-                           [class.transcript-bubble--opponent]="bubble.speaker === 'opponent'"
-                           [class.transcript-bubble--unknown]="bubble.speaker === 'unknown'">
-                        <div class="transcript-bubble__header">
-                          <span class="transcript-bubble__speaker">{{ bubble.label }}</span>
-                        </div>
-                        <p class="transcript-bubble__text">
-                          {{ bubble.text }}
-                          @if ($last && isMonitoring()) {
-                            <span class="transcript-cursor" aria-hidden="true"></span>
-                          }
-                        </p>
-                        @for (correction of bubble.corrections; track $index) {
-                          <div class="transcript-bubble__correction">
-                            <ion-icon name="warning-outline"></ion-icon>
-                            <span>{{ correction }}</span>
-                          </div>
-                        }
+              @if (speakerTranscript().length > 0) {
+                <div class="transcript-bubbles">
+                  @for (bubble of speakerTranscript(); track $index) {
+                    <div class="transcript-bubble"
+                         [class.transcript-bubble--self]="bubble.speaker === 'self'"
+                         [class.transcript-bubble--opponent]="bubble.speaker === 'opponent'"
+                         [class.transcript-bubble--unknown]="bubble.speaker === 'unknown'">
+                      <div class="transcript-bubble__header">
+                        <span class="transcript-bubble__speaker">{{ bubble.label }}</span>
                       </div>
-                    }
-                  </div>
-                } @else {
-                  <div class="empty-panel empty-panel--waiting">
-                    <div class="typing-indicator" aria-hidden="true">
-                      <span></span>
-                      <span></span>
-                      <span></span>
+                      <p class="transcript-bubble__text">
+                        {{ bubble.text }}
+                        @if ($last && isMonitoring()) {
+                          <span class="transcript-cursor" aria-hidden="true"></span>
+                        }
+                      </p>
+                      @for (correction of bubble.corrections; track $index) {
+                        <div class="transcript-bubble__correction">
+                          <ion-icon name="warning-outline"></ion-icon>
+                          <span>{{ correction }}</span>
+                        </div>
+                      }
                     </div>
-                    {{ transcriptWaitingCopy() }}
+                  }
+                </div>
+              } @else {
+                <div class="empty-panel empty-panel--waiting">
+                  <div class="typing-indicator" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
                   </div>
-                }
-              </section>
+                  {{ transcriptWaitingCopy() }}
+                </div>
+              }
 
               @if (latestIntervention() && !showCorrectionOverlay()) {
                 <section class="intervention-strip" [class.is-self]="latestIntervention()?.attributedTo === 'self'" [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'">
@@ -237,15 +198,49 @@
                 </div>
               }
 
-              <button
-                class="primary-cta primary-cta--floating"
-                [class.primary-cta--stop]="isMonitoring()"
-                type="button"
-                [disabled]="isBusy()"
-                (click)="toggleMonitoring()">
-                <ion-icon [name]="isMonitoring() ? 'stop-circle-outline' : 'mic-outline'"></ion-icon>
-                <span>{{ isMonitoring() ? 'Stop Session' : (hasSessionData() ? 'Resume Session' : 'Start Listening') }}</span>
-              </button>
+              <!-- Active-session control bar: pause / mic / stop -->
+              @if (isMonitoring()) {
+                <div class="session-control-bar">
+                  <button
+                    class="session-control-bar__button"
+                    type="button"
+                    aria-label="Pause session"
+                    [disabled]="isBusy()"
+                    (click)="pauseMonitoring()">
+                    <div class="session-control-bar__pause-bars" aria-hidden="true">
+                      <span></span><span></span>
+                    </div>
+                  </button>
+                  <div
+                    class="session-control-bar__mic"
+                    [style.--listen-level]="activityLevel()"
+                    aria-label="Listening"
+                    aria-live="polite">
+                    <span class="session-control-bar__mic-ring session-control-bar__mic-ring--1" aria-hidden="true"></span>
+                    <span class="session-control-bar__mic-ring session-control-bar__mic-ring--2" aria-hidden="true"></span>
+                    <span class="session-control-bar__mic-ring session-control-bar__mic-ring--3" aria-hidden="true"></span>
+                    <span class="session-control-bar__mic-glow" aria-hidden="true"></span>
+                    <ion-icon name="mic-outline"></ion-icon>
+                  </div>
+                  <button
+                    class="session-control-bar__button session-control-bar__button--stop"
+                    type="button"
+                    aria-label="Stop session"
+                    [disabled]="isBusy()"
+                    (click)="stopSession()">
+                    <span class="session-control-bar__stop-square" aria-hidden="true"></span>
+                  </button>
+                </div>
+              } @else {
+                <button
+                  class="primary-cta primary-cta--floating"
+                  type="button"
+                  [disabled]="isBusy()"
+                  (click)="toggleMonitoring()">
+                  <ion-icon name="mic-outline"></ion-icon>
+                  <span>{{ (isPaused() || hasSessionData()) ? 'Resume Session' : 'Start Listening' }}</span>
+                </button>
+              }
             }
           </section>
         }
@@ -1161,18 +1156,18 @@
       </div>
     }
 
-    <!-- ═══════════════════ FIXED BOTTOM NAVIGATION ═══════════════════ -->
+    <!-- ═══════════════════ FLOATING BOTTOM NAVIGATION (3 tabs, Profile via topbar avatar) ═══════════════════ -->
     <nav class="bottom-nav">
       <button class="nav-button" [class.is-active]="activeTab() === 'live'" (click)="selectTab('live')" type="button">
-        <ion-icon name="mic-outline"></ion-icon>
-        <span>Live</span>
+        <ion-icon [name]="activeTab() === 'live' ? 'mic' : 'mic-outline'"></ion-icon>
+        <span>Listen</span>
       </button>
       <button class="nav-button" [class.is-active]="activeTab() === 'insights'" (click)="selectTab('insights')" type="button">
-        <ion-icon name="bar-chart-outline"></ion-icon>
+        <ion-icon [name]="activeTab() === 'insights' ? 'bar-chart' : 'bar-chart-outline'"></ion-icon>
         <span>Insights</span>
       </button>
       <button class="nav-button" [class.is-active]="activeTab() === 'rankings'" (click)="selectTab('rankings')" type="button">
-        <ion-icon name="trophy-outline"></ion-icon>
+        <ion-icon [name]="activeTab() === 'rankings' ? 'star' : 'star-outline'"></ion-icon>
         <span>Rankings</span>
       </button>
     </nav>

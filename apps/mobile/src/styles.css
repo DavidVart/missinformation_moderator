@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400..600,0..100&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -6,33 +6,74 @@
 
 :root {
   color-scheme: light;
-  font-family: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: "Source Serif 4", "Iowan Old Style", "Apple Garamond", Georgia, serif;
 
-  /* ── Bright light palette ── */
-  --rt-bg: #f0f4ff;
-  --rt-surface: rgba(255, 255, 255, 0.72);
-  --rt-surface-soft: rgba(255, 255, 255, 0.55);
-  --rt-surface-muted: rgba(0, 20, 80, 0.04);
-  --rt-surface-raised: rgba(255, 255, 255, 0.92);
+  /* ── Record palette (warm cream ground, amber accent, terracotta correction) ── */
+  --rt-bg: #f3eee5;            /* primary ground */
+  --rt-bg-elev: #faf6ed;       /* elevated surfaces / cards */
+  --rt-bg-sunk: #e8e2d4;       /* inset backgrounds (toggles, rails) */
+  --rt-bg-dark: #1c1914;       /* dark ink surface */
 
-  /* ── Brand accent ── */
-  --rt-primary: #2563eb;
-  --rt-primary-strong: #1d4ed8;
-  --rt-secondary: #0ea5e9;
-  --rt-secondary-soft: rgba(14, 165, 233, 0.1);
-  --rt-tertiary: #ef4444;
+  --rt-surface: var(--rt-bg-elev);
+  --rt-surface-raised: var(--rt-bg-elev);
+  --rt-surface-soft: rgba(250, 246, 237, 0.7);
+  --rt-surface-muted: rgba(28, 25, 20, 0.04);
 
-  /* ── Text ── */
-  --rt-text: #0f172a;
-  --rt-text-secondary: #334155;
-  --rt-muted: #94a3b8;
-  --rt-muted-strong: #64748b;
+  /* ── Ink ── */
+  --rt-ink: #1c1914;
+  --rt-ink-muted: #5c4f3e;
+  --rt-ink-faint: #8b7a63;
+  --rt-ink-whisper: #bfaf94;
+
+  /* Aliases kept for back-compat with existing class names */
+  --rt-text: var(--rt-ink);
+  --rt-text-secondary: var(--rt-ink-muted);
+  --rt-muted: var(--rt-ink-faint);
+  --rt-muted-strong: var(--rt-ink-muted);
+
+  /* ── Borders ── */
+  --rt-border: rgba(28, 25, 20, 0.12);
+  --rt-border-strong: rgba(28, 25, 20, 0.22);
+
+  /* ── Accent (amber) — used for LiveDot, highlight strokes, SPEAK pill ── */
+  --rt-accent: #e6c16b;
+  --rt-accent-soft: rgba(230, 193, 107, 0.18);
+  --rt-accent-ink: #1a1a00;
+
+  /* ── Primary (kept as ink for existing .primary-cta etc.) ── */
+  --rt-primary: var(--rt-ink);
+  --rt-primary-strong: #0f0e0b;
+  --rt-primary-soft: rgba(28, 25, 20, 0.08);
+
+  /* ── Correction / alert (muted terracotta) ── */
+  --rt-correction: #b8562a;
+  --rt-correction-soft: rgba(184, 86, 42, 0.12);
+
+  /* ── Verified (forest) ── */
+  --rt-verified: #3e6b4d;
+  --rt-verified-soft: rgba(62, 107, 77, 0.12);
+
+  /* ── Secondary (mapped to correction so existing code keeps semantic sense) ── */
+  --rt-secondary: var(--rt-correction);
+  --rt-secondary-soft: var(--rt-correction-soft);
 
   /* ── Semantic ── */
-  --rt-success: #22c55e;
-  --rt-warning: #f59e0b;
-  --rt-danger: #ef4444;
-  --rt-border: rgba(0, 20, 80, 0.08);
+  --rt-success: var(--rt-verified);
+  --rt-warning: var(--rt-correction);
+  --rt-danger: var(--rt-correction);
+  --rt-tertiary: var(--rt-correction);
+
+  /* ── Typography ── */
+  --rt-font-display: "Fraunces", "Iowan Old Style", "Apple Garamond", Georgia, serif;
+  --rt-font-body: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --rt-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ── Radii (Record direction uses tighter corners) ── */
+  --rt-radius-sm: 4px;
+  --rt-radius-md: 8px;
+  --rt-radius-lg: 12px;
+  --rt-radius-xl: 14px;
+  --rt-radius-pill: 999px;
 
   /* ── Animation tokens ── */
   --rt-transition-fast: 160ms;
@@ -49,6 +90,8 @@ body {
   min-height: 100%;
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+  font-family: var(--rt-font-body);
+  color: var(--rt-ink);
 }
 
 body,
@@ -90,12 +133,8 @@ ion-icon {
   display: inline-flex;
 }
 
-/* ion-content no longer used — layout is plain flexbox */
-
 /* ═══════════════════════════════════════════════════════════════
-   MOBILE AUTH HANDOFF — hide main UI + show lightweight loader
-   (Used when the Vercel web app is opened from the native app via
-    ?mobileAuth=1 for Clerk sign-in before redirecting back.)
+   MOBILE AUTH HANDOFF
    ═══════════════════════════════════════════════════════════════ */
 
 html.rt-mobile-auth-mode body > app-root {
@@ -109,11 +148,11 @@ html.rt-mobile-auth-mode body::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--rt-bg, #f0f4ff);
-  color: var(--rt-text, #0f172a);
-  font-family: "Manrope", "Inter", "Segoe UI", sans-serif;
-  font-weight: 700;
-  font-size: 1rem;
+  background: var(--rt-bg, #f3eee5);
+  color: var(--rt-ink, #1c1914);
+  font-family: var(--rt-font-display, "Fraunces", Georgia, serif);
+  font-weight: 500;
+  font-size: 1.1rem;
   letter-spacing: -0.01em;
   z-index: 1;
 }
@@ -126,8 +165,8 @@ html.rt-mobile-auth-mode body::after {
   width: 2rem;
   height: 2rem;
   margin-left: -1rem;
-  border: 3px solid rgba(37, 99, 235, 0.15);
-  border-top-color: #2563eb;
+  border: 3px solid rgba(28, 25, 20, 0.15);
+  border-top-color: #1c1914;
   border-radius: 50%;
   animation: rt-mobile-auth-spin 0.8s linear infinite;
   z-index: 1;
@@ -140,7 +179,7 @@ html.rt-mobile-auth-mode body::after {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   REDUCED MOTION — respect accessibility preference
+   REDUCED MOTION
    ═══════════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {

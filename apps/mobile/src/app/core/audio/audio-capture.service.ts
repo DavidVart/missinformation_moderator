@@ -44,7 +44,7 @@ export class AudioCaptureService {
    * V2: speaker role provider, set by app.component via startSession.
    * Called once per chunk so a mid-session toggle takes effect immediately.
    */
-  private speakerRoleProvider: SpeakerRoleProvider = () => "opponent";
+  private speakerRoleProvider: SpeakerRoleProvider = () => "self";
 
   readonly chunks$ = new Subject<EncodedAudioChunk>();
   readonly levels$ = new BehaviorSubject<number>(0);
@@ -165,6 +165,21 @@ export class AudioCaptureService {
     this.currentBuffer = new Float32Array();
     this.currentChunkStartedAtMs = null;
     this.levels$.next(0);
+  }
+
+  async pause() {
+    if (this.audioContext && this.audioContext.state === "running") {
+      await this.audioContext.suspend();
+    }
+    this.currentBuffer = new Float32Array();
+    this.currentChunkStartedAtMs = null;
+    this.levels$.next(0);
+  }
+
+  async resume() {
+    if (this.audioContext && this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
   }
 
   async stop() {

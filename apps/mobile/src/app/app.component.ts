@@ -6,6 +6,7 @@ import { addIcons } from "ionicons";
 import {
   analyticsOutline,
   archiveOutline,
+  barChart,
   barChartOutline,
   checkmarkCircleOutline,
   closeOutline,
@@ -13,7 +14,9 @@ import {
   documentTextOutline,
   flashOutline,
   logOutOutline,
+  mic,
   micOutline,
+  person,
   personOutline,
   pulseOutline,
   personCircleOutline,
@@ -24,6 +27,8 @@ import {
   settingsOutline,
   shieldCheckmarkOutline,
   sparklesOutline,
+  star,
+  starOutline,
   stopCircleOutline,
   timeOutline,
   trendingUpOutline,
@@ -39,7 +44,8 @@ import {
   arrowForwardOutline,
   chevronForwardOutline,
   gridOutline,
-  newspaperOutline
+  newspaperOutline,
+  ellipsisHorizontal
 } from "ionicons/icons";
 import { Subscription } from "rxjs";
 
@@ -98,6 +104,7 @@ type TopicInfo = {
 type StatusReadout = {
   label: string;
   value: string;
+  sub?: string;
   emphasis?: boolean;
 };
 
@@ -174,6 +181,8 @@ export class AppComponent implements OnDestroy {
   protected readonly ambientTick = signal(0);
   protected readonly uiNowMs = signal(Date.now());
   protected readonly sessionStartedAtMs = signal<number | null>(null);
+  protected readonly isPaused = signal(false);
+  protected readonly pausedAtMs = signal<number | null>(null);
 
   // ───────────────── Session mode ─────────────────
   protected readonly selectedMode = signal<SessionMode>("debate_live");
@@ -182,6 +191,14 @@ export class AppComponent implements OnDestroy {
     { mode: "conversation_score", icon: "stats-chart-outline", title: "Talk + Score", description: "Score accuracy after session ends" },
     { mode: "silent_review", icon: "eye-off-outline", title: "Silent Review", description: "No interruptions, review later" },
     { mode: "background_capture", icon: "ear-outline", title: "Background", description: "Capture ambient conversation" }
+  ];
+
+  // 3-segment mode picker on Live idle — matches the design's pill.
+  // Background mode still reachable via the mode sheet.
+  protected readonly visibleModes: { mode: SessionMode; label: string }[] = [
+    { mode: "debate_live", label: "Live Debate" },
+    { mode: "silent_review", label: "Silent Review" },
+    { mode: "conversation_score", label: "Scoring" }
   ];
 
   // ───────────────── Rankings ─────────────────
@@ -429,21 +446,28 @@ export class AppComponent implements OnDestroy {
 
     return "Backend offline";
   });
-  protected readonly sessionGlanceItems = computed<StatusReadout[]>(() => [
-    {
-      label: "Segments",
-      value: String(this.transcriptSegments().length).padStart(2, "0")
-    },
-    {
-      label: "Corrections",
-      value: String(this.interventions().length).padStart(2, "0"),
-      emphasis: this.interventions().length > 0
-    },
-    {
-      label: "Cadence",
-      value: "4s / 2s"
-    }
-  ]);
+  protected readonly sessionGlanceItems = computed<StatusReadout[]>(() => {
+    const corrections = this.interventions().length;
+    const highConfCount = this.interventions().filter(
+      (i) => typeof i.confidence === "number" && i.confidence >= 0.8
+    ).length;
+    return [
+      {
+        label: "Duration",
+        value: this.sessionMetrics().duration
+      },
+      {
+        label: "Corrections",
+        value: String(corrections),
+        sub: highConfCount > 0 ? `${highConfCount} high conf` : undefined,
+        emphasis: corrections > 0
+      },
+      {
+        label: "Segments",
+        value: String(this.transcriptSegments().length)
+      }
+    ];
+  });
   protected readonly sessionWaveBars = computed(() => {
     const baseIntensity = this.isMonitoring()
       ? clamp(0.34 + this.activityLevel() * 0.95, 0.34, 1)
@@ -551,6 +575,7 @@ export class AppComponent implements OnDestroy {
       archiveOutline,
       arrowBackOutline,
       arrowForwardOutline,
+      barChart,
       barChartOutline,
       calendarOutline,
       chatbubblesOutline,
@@ -560,12 +585,15 @@ export class AppComponent implements OnDestroy {
       createOutline,
       documentTextOutline,
       earOutline,
+      ellipsisHorizontal,
       eyeOffOutline,
       flashOutline,
       gridOutline,
       logOutOutline,
+      mic,
       micOutline,
       newspaperOutline,
+      person,
       personOutline,
       podiumOutline,
       pulseOutline,
@@ -576,6 +604,8 @@ export class AppComponent implements OnDestroy {
       settingsOutline,
       shieldCheckmarkOutline,
       sparklesOutline,
+      star,
+      starOutline,
       statsChartOutline,
       stopCircleOutline,
       timeOutline,
@@ -729,7 +759,66 @@ export class AppComponent implements OnDestroy {
       return;
     }
 
+    if (this.isPaused()) {
+      await this.resumeMonitoring();
+      return;
+    }
+
     await this.startMonitoring();
+  }
+
+  protected async stopSession() {
+    if (this.isMonitoring() || this.isPaused()) {
+      await this.stopMonitoring();
+    }
+  }
+
+  protected async pauseMonitoring() {
+    if (!this.isMonitoring()) {
+      return;
+    }
+
+    // Snapshot elapsed time so the timer freezes at the pause point.
+    this.pausedAtMs.set(Date.now());
+    this.isMonitoring.set(false);
+    this.isPaused.set(true);
+    this.statusMessage.set("Session paused");
+
+    try {
+      await this.audioCaptureService.pause();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to pause";
+      this.micError.set(message);
+    }
+  }
+
+  protected async resumeMonitoring() {
+    if (!this.isPaused()) {
+      return;
+    }
+
+    // Shift session start forward by the paused interval so elapsed excludes
+    // the time we were paused.
+    const pausedAt = this.pausedAtMs();
+    const startedAt = this.sessionStartedAtMs();
+    if (pausedAt !== null && startedAt !== null) {
+      this.sessionStartedAtMs.set(startedAt + (Date.now() - pausedAt));
+    }
+
+    this.pausedAtMs.set(null);
+    this.isPaused.set(false);
+    this.isMonitoring.set(true);
+    this.statusMessage.set("Listening resumed");
+
+    try {
+      await this.audioCaptureService.resume();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to resume";
+      this.micError.set(message);
+      this.isMonitoring.set(false);
+      this.isPaused.set(true);
+      this.pausedAtMs.set(Date.now());
+    }
   }
 
   protected async speakLatestIntervention() {
@@ -1113,6 +1202,8 @@ export class AppComponent implements OnDestroy {
     this.statusMessage.set("Opening microphone");
     this.activeTab.set("live");
     this.isCorrectionOpen.set(false);
+    this.isPaused.set(false);
+    this.pausedAtMs.set(null);
 
     try {
       const userId = this.auth.userId() ?? undefined;
@@ -1153,6 +1244,8 @@ export class AppComponent implements OnDestroy {
   private async stopMonitoring() {
     this.isBusy.set(true);
     this.isMonitoring.set(false);
+    this.isPaused.set(false);
+    this.pausedAtMs.set(null);
     this.statusMessage.set("Stopping capture");
 
     // V2: remember which session just ended so the attribution modal
@@ -1318,21 +1411,31 @@ export class AppComponent implements OnDestroy {
   }
 
   private formatDurationLabel() {
+    const startedAt = this.sessionStartedAtMs();
+
+    // Active or paused session — tick from session start time, reading uiNowMs
+    // so the computed re-runs every UI frame instead of only when a segment arrives.
+    if (startedAt !== null) {
+      const endAt = this.isMonitoring() ? this.uiNowMs() : (this.pausedAtMs() ?? this.uiNowMs());
+      return this.formatDurationMs(Math.max(0, endAt - startedAt));
+    }
+
+    // Fully stopped — fall back to first/last segment timestamps.
     const segments = this.transcriptSegments();
     if (segments.length === 0) {
       return "0m 00s";
     }
 
-    const startedAt = Date.parse(segments[0]?.startedAt ?? "");
-    const endedAt = this.isMonitoring()
-      ? Date.now()
-      : Date.parse(segments[segments.length - 1]?.endedAt ?? "");
-
-    if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt)) {
+    const firstStart = Date.parse(segments[0]?.startedAt ?? "");
+    const lastEnd = Date.parse(segments[segments.length - 1]?.endedAt ?? "");
+    if (!Number.isFinite(firstStart) || !Number.isFinite(lastEnd)) {
       return "0m 00s";
     }
 
-    const durationMs = Math.max(0, endedAt - startedAt);
+    return this.formatDurationMs(Math.max(0, lastEnd - firstStart));
+  }
+
+  private formatDurationMs(durationMs: number) {
     const minutes = Math.floor(durationMs / 60_000);
     const seconds = Math.floor((durationMs % 60_000) / 1000);
     return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
