@@ -6,6 +6,11 @@ import { buildChunkPayload, calculateChunkSampleCount, mergeFloat32Arrays } from
 
 const CHUNK_MS = 4000;
 const CHUNK_STEP_MS = 3000;
+// V2 cold-start: emit a shorter first chunk (~2s of audio) so the first
+// transcript window lands in ~3s instead of ~6s when the user taps Start.
+// Only applies to the very first chunk of the session; subsequent chunks
+// keep the normal 4s window / 3s step cadence.
+const FIRST_CHUNK_MS = 2000;
 const TARGET_SAMPLE_RATE = 16000;
 // V2 client-side VAD: if the peak normalized level stays below this for the
 // entire chunk, we consider it silent and skip emitting it. Saves bandwidth
@@ -38,6 +43,8 @@ export class AudioCaptureService {
   private currentChunkStartedAtMs: number | null = null;
   private sourceSamplesPerChunk = calculateChunkSampleCount(TARGET_SAMPLE_RATE, CHUNK_MS);
   private sourceSamplesPerStep = calculateChunkSampleCount(TARGET_SAMPLE_RATE, CHUNK_STEP_MS);
+  private sourceSamplesForFirstChunk = calculateChunkSampleCount(TARGET_SAMPLE_RATE, FIRST_CHUNK_MS);
+  private firstChunkEmitted = false;
   private suppressedUntilMs = 0;
   private sequence = 0;
   /**
@@ -58,6 +65,7 @@ export class AudioCaptureService {
     this.currentBuffer = new Float32Array();
     this.currentChunkStartedAtMs = null;
     this.suppressedUntilMs = 0;
+    this.firstChunkEmitted = false;
     this.levels$.next(0);
 
     if (!globalThis.isSecureContext) {
@@ -80,6 +88,7 @@ export class AudioCaptureService {
     this.audioContext = new AudioContext();
     this.sourceSamplesPerChunk = calculateChunkSampleCount(this.audioContext.sampleRate, CHUNK_MS);
     this.sourceSamplesPerStep = calculateChunkSampleCount(this.audioContext.sampleRate, CHUNK_STEP_MS);
+    this.sourceSamplesForFirstChunk = calculateChunkSampleCount(this.audioContext.sampleRate, FIRST_CHUNK_MS);
     await this.audioContext.audioWorklet.addModule("/audio/audio-worklet-processor.js");
 
     const source = this.audioContext.createMediaStreamSource(this.mediaStream);
@@ -108,6 +117,46 @@ export class AudioCaptureService {
 
       if (this.currentChunkStartedAtMs === null) {
         this.currentChunkStartedAtMs = Date.now();
+      }
+
+      // Cold-start optimization: emit the VERY first chunk once ~2s of audio
+      // has accumulated instead of waiting a full 4s. Subsequent iterations
+      // fall through to the normal 4s window / 3s step cadence.
+      if (!this.firstChunkEmitted && this.currentBuffer.length >= this.sourceSamplesForFirstChunk) {
+        const chunkSamples = this.currentBuffer.slice(0, this.sourceSamplesForFirstChunk);
+        // Consume the entire short window — next chunk starts fresh.
+        this.currentBuffer = this.currentBuffer.slice(this.sourceSamplesForFirstChunk);
+
+        const chunkStartedAtMs: number = this.currentChunkStartedAtMs ?? Date.now();
+        const chunkEndedAtMs: number = chunkStartedAtMs + FIRST_CHUNK_MS;
+
+        let peakAmplitude = 0;
+        for (let i = 0; i < chunkSamples.length; i += 1) {
+          const abs = Math.abs(chunkSamples[i] ?? 0);
+          if (abs > peakAmplitude) peakAmplitude = abs;
+        }
+
+        // Reset chunk timing so the next 4s window starts clean.
+        this.currentChunkStartedAtMs = chunkStartedAtMs + FIRST_CHUNK_MS;
+        this.firstChunkEmitted = true;
+
+        if (peakAmplitude >= SILENCE_PEAK_THRESHOLD) {
+          const chunk = buildChunkPayload(
+            chunkSamples,
+            this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE,
+            new Date(chunkStartedAtMs).toISOString(),
+            new Date(chunkEndedAtMs).toISOString()
+          );
+
+          this.sequence += 1;
+          this.chunks$.next({
+            seq: this.sequence,
+            ...chunk,
+            speakerRole: this.speakerRoleProvider()
+          });
+        } else {
+          this.sequence += 1;
+        }
       }
 
       while (this.currentBuffer.length >= this.sourceSamplesPerChunk) {
@@ -218,6 +267,8 @@ export class AudioCaptureService {
     this.currentChunkStartedAtMs = null;
     this.sourceSamplesPerChunk = calculateChunkSampleCount(TARGET_SAMPLE_RATE, CHUNK_MS);
     this.sourceSamplesPerStep = calculateChunkSampleCount(TARGET_SAMPLE_RATE, CHUNK_STEP_MS);
+    this.sourceSamplesForFirstChunk = calculateChunkSampleCount(TARGET_SAMPLE_RATE, FIRST_CHUNK_MS);
+    this.firstChunkEmitted = false;
     this.suppressedUntilMs = 0;
     this.levels$.next(0);
   }

@@ -214,6 +214,7 @@ async function bootstrap() {
           interventions.confidence,
           interventions.correction,
           interventions.issued_at,
+          interventions.attributed_to,
           claims.claim_text,
           evidence_sources.title AS source_title,
           evidence_sources.url AS source_url,

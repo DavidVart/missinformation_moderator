@@ -315,12 +315,21 @@ export class AppComponent implements OnDestroy {
       }>;
     }
 
-    // Build lookup: correction timestamps → correction + attributedTo
+    // Build lookup: correction timestamps → correction + attributedTo + claim word set.
+    // The claim word set is used as a lexical tie-breaker when multiple bubbles
+    // land within the time window of a single correction.
     const correctionEntries = corrections
       .map((c) => ({
         time: Date.parse(c.issuedAt),
         text: c.correction,
-        attributedTo: c.attributedTo ?? "unknown"
+        attributedTo: c.attributedTo ?? "unknown",
+        claimWords: new Set(
+          (c.claimText ?? "")
+            .toLowerCase()
+            .split(/\s+/)
+            .map((w) => w.replace(/[^a-z0-9]/g, ""))
+            .filter((w) => w.length >= 4)
+        )
       }))
       .filter((entry) => Number.isFinite(entry.time));
 
@@ -353,24 +362,43 @@ export class AppComponent implements OnDestroy {
       }
     }
 
-    // Attach each correction to whichever bubble it landed inside (or the
-    // closest one by time if no direct overlap). Only attach when the
-    // correction's `attributedTo` matches the bubble's speaker — that way a
-    // correction on "self" speech doesn't dangle on an opponent bubble.
+    // Attach each correction to the same-speaker bubble whose text most
+    // lexically overlaps with the claim. Lexical overlap beats timestamp
+    // proximity because the interventions arrive 8–12s after the claim with
+    // variable latency, so time-based matching frequently targets the wrong
+    // bubble. We fall back to the widest reasonable timestamp window
+    // (claim + 15s latency tolerance) when no lexical overlap exists.
+    const LATENCY_TOLERANCE_MS = 15_000;
     for (const entry of correctionEntries) {
       let bestMatch: (typeof bubbles)[number] | null = null;
+      let bestScore = -1; // higher is better (word overlap count)
       let bestDistance = Infinity;
       for (const bubble of bubbles) {
         if (bubble.speaker !== entry.attributedTo && entry.attributedTo !== "unknown") {
           continue;
         }
+
+        // Lexical overlap: count significant words from the claim that appear
+        // in this bubble's transcript text.
+        let overlap = 0;
+        if (entry.claimWords.size > 0) {
+          const bubbleLower = bubble.text.toLowerCase();
+          for (const word of entry.claimWords) {
+            if (bubbleLower.includes(word)) overlap += 1;
+          }
+        }
+
         const bubbleStart = Date.parse(bubble.startedAt);
         const bubbleEnd = Date.parse(bubble.endedAt);
         const distance =
-          entry.time >= bubbleStart && entry.time <= bubbleEnd + 3000
+          entry.time >= bubbleStart && entry.time <= bubbleEnd + LATENCY_TOLERANCE_MS
             ? 0
             : Math.min(Math.abs(entry.time - bubbleStart), Math.abs(entry.time - bubbleEnd));
-        if (distance < bestDistance) {
+
+        // Prefer bubbles with strictly more word overlap; break ties by
+        // nearest timestamp.
+        if (overlap > bestScore || (overlap === bestScore && distance < bestDistance)) {
+          bestScore = overlap;
           bestDistance = distance;
           bestMatch = bubble;
         }

@@ -26,6 +26,7 @@ type InterventionHistoryResponse = {
     confidence: number;
     correction: string;
     issuedAt: string;
+    attributedTo: "self" | "opponent" | "unknown";
     claimText: string;
     sources: Array<{
       title: string;

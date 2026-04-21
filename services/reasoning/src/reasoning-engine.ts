@@ -10,7 +10,11 @@ const claimDetectionSchema = z.object({
   claimText: z.string(),
   query: z.string(),
   confidence: z.number().min(0).max(1),
-  rationale: z.string()
+  rationale: z.string(),
+  // V2: which speaker actually made this claim. The prompt tags every line
+  // with [SELF] or [OPPONENT]; the model returns whichever speaker's line the
+  // claim was drawn from (or "unknown" if ambiguous).
+  speakerRole: z.enum(["self", "opponent", "unknown"]).default("unknown")
 });
 
 const verificationSchema = z.object({
@@ -293,6 +297,9 @@ export function createReasoningEngine(config: {
       `or hypotheticals. Focus on verifiable assertions of fact — names, dates, numbers, events, causal claims.\n` +
       `If the claim is attributed to [SELF], apply stricter scrutiny — only flag objectively verifiable statements,\n` +
       `never personal opinions or first-person anecdotes.\n` +
+      `CRITICAL: populate the speakerRole field with the tag of the line the claim was drawn from —\n` +
+      `"self" if the claim appears on a [SELF] line, "opponent" if it appears on an [OPPONENT] line.\n` +
+      `If the claim text spans both speakers or is ambiguous, return "unknown".\n` +
       `Respond only using the requested structured schema.\n\nTranscript:\n{transcript}`
   );
 
@@ -331,11 +338,27 @@ export function createReasoningEngine(config: {
         return null;
       }
 
-      // Attribute the claim to the speaker of the most recent segment (the one
-      // that actually completed the claim). Fallback: whichever speaker has
-      // the most content in the window.
-      const latestSegment = transcriptWindow.at(-1);
-      const speakerRole = latestSegment?.speakerRole ?? "unknown";
+      // Prefer the speakerRole the LLM assigned (based on the [SELF]/[OPPONENT]
+      // line tags). If the model returns "unknown", fall back to the speaker
+      // with the largest word share in the window — more robust than
+      // always picking the last segment, which gets the attribution wrong
+      // whenever the user's mid-claim speaker toggle lands a newer segment
+      // in the same 4s window.
+      let speakerRole: "self" | "opponent" | "unknown" = result.speakerRole ?? "unknown";
+      if (speakerRole === "unknown") {
+        const wordsByRole = { self: 0, opponent: 0 };
+        for (const segment of transcriptWindow) {
+          const role = segment.speakerRole;
+          if (role === "self") wordsByRole.self += segment.text.split(/\s+/).length;
+          else if (role === "opponent") wordsByRole.opponent += segment.text.split(/\s+/).length;
+        }
+        if (wordsByRole.self !== wordsByRole.opponent) {
+          speakerRole = wordsByRole.self > wordsByRole.opponent ? "self" : "opponent";
+        } else {
+          // Truly tied (or no labeled segments) — fall back to the latest.
+          speakerRole = (transcriptWindow.at(-1)?.speakerRole ?? "unknown") as typeof speakerRole;
+        }
+      }
 
       return claimAssessmentSchema.parse({
         claimId: uuidv4(),

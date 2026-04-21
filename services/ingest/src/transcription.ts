@@ -125,7 +125,7 @@ export function resolveWhisperWorkerUrls(workerUrl: string) {
 }
 
 const TRANSCRIPTION_SYSTEM_PROMPT =
-  "Transcribe conversational English faithfully for a live fact-checking app. Prefer literal wording, keep punctuation light, preserve names, places, and geopolitical terms exactly when possible, and avoid paraphrasing or inventing filler words. Common topics include politics, geopolitics, elections, wars, bombings, the Middle East, Iran, Israel, Gaza, Donald Trump, Joe Biden, Netanyahu, and Dubai.";
+  "Transcribe conversational English faithfully for a live fact-checking app. Speakers may have non-native accents — prefer the literal wording they produce, keep punctuation light, preserve names, places, and geopolitical terms exactly when possible, and avoid paraphrasing or inventing filler words. Common topics include politics, geopolitics, elections, wars, bombings, the Middle East, Iran, Israel, Gaza, Donald Trump, Joe Biden, Netanyahu, Dubai; US cities and states such as New York, Los Angeles, Chicago, San Francisco, Miami, Texas, Florida, California; and public figures such as Kamala Harris, Elon Musk, Vladimir Putin, Zelenskyy.";
 
 export function buildInitialPrompt(previousTranscript?: string) {
   const trimmedTranscript = previousTranscript?.trim();
@@ -223,16 +223,21 @@ export async function transcribeWithOpenAI(
 
   const formData = new FormData();
   formData.append("file", new Blob([wavBuffer], { type: "audio/wav" }), "audio.wav");
-  formData.append("model", "whisper-1");
-  formData.append("response_format", "verbose_json");
+  // gpt-4o-mini-transcribe: higher accuracy on accented English than whisper-1
+  // and ~half the price ($0.003/min vs $0.006/min). Supports only json/text
+  // response formats (no verbose_json), so the segment-level hallucination
+  // signals (no_speech_prob/avg_logprob/compression_ratio) are unavailable —
+  // we rely on the pattern-matching filter plus the client-side VAD.
+  formData.append("model", "gpt-4o-mini-transcribe");
+  formData.append("response_format", "json");
 
   if (options?.initialPrompt) {
     formData.append("prompt", options.initialPrompt);
   }
 
-  if (chunk.language) {
-    formData.append("language", chunk.language);
-  }
+  // Default to English when the caller hasn't set a language. Explicit
+  // language hints reduce Whisper auto-detect errors and hallucinations.
+  formData.append("language", chunk.language && chunk.language.trim().length > 0 ? chunk.language : "en");
 
   const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -248,25 +253,20 @@ export async function transcribeWithOpenAI(
   }
 
   const payload = await response.json();
-  // verbose_json returns { text, language, duration, segments[] }
-  // segments have avg_logprob + no_speech_prob + compression_ratio.
+  // gpt-4o-mini-transcribe returns { text } (json format). No per-segment
+  // confidence signals, so hallucination detection is pattern-only here.
   const rawText = typeof payload.text === "string" ? payload.text : "";
-  const segments = Array.isArray(payload.segments) ? payload.segments : [];
 
-  // Reject Whisper hallucinations ("Thanks for watching", "Subscribe to the
-  // channel", lone "you", high no_speech_prob, high compression ratio, etc.)
-  const { hallucinated, reason } = isLikelyHallucination(rawText, segments);
+  // Reject known hallucinations ("Thanks for watching", "Subscribe to the
+  // channel", lone "you" loops, etc.).
+  const { hallucinated, reason } = isLikelyHallucination(rawText, undefined);
   if (hallucinated) {
-    console.warn(`[whisper] dropping likely hallucination (${reason}): "${rawText.slice(0, 80)}"`);
+    console.warn(`[transcription] dropping likely hallucination (${reason}): "${rawText.slice(0, 80)}"`);
     return whisperResponseSchema.parse({ text: "" });
   }
 
-  const avgLogProb = segments[0]?.avg_logprob;
-  const confidence = avgLogProb != null ? Math.max(0, Math.min(1, 1 + avgLogProb)) : undefined;
-
   return whisperResponseSchema.parse({
-    text: rawText,
-    confidence
+    text: rawText
   });
 }
 

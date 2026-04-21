@@ -24,6 +24,7 @@ export function mapInterventions(rows: Array<Record<string, unknown>>) {
     confidence: number;
     correction: string;
     issuedAt: string;
+    attributedTo: "self" | "opponent" | "unknown";
     claimText: string;
     sources: Array<{
       title: string;
@@ -38,6 +39,10 @@ export function mapInterventions(rows: Array<Record<string, unknown>>) {
     const messageId = row.message_id as string;
 
     if (!byMessageId.has(messageId)) {
+      const rawAttributedTo = row.attributed_to as string | null | undefined;
+      const attributedTo: "self" | "opponent" | "unknown" =
+        rawAttributedTo === "self" || rawAttributedTo === "opponent" ? rawAttributedTo : "unknown";
+
       byMessageId.set(messageId, {
         messageId,
         claimId: row.claim_id as string,
@@ -47,6 +52,7 @@ export function mapInterventions(rows: Array<Record<string, unknown>>) {
         confidence: Number(row.confidence),
         correction: row.correction as string,
         issuedAt: String(row.issued_at),
+        attributedTo,
         claimText: row.claim_text as string,
         sources: []
       });
