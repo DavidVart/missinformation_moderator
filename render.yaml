@@ -76,6 +76,17 @@ services:
         sync: false
       - key: INTERVENTION_CONFIDENCE_THRESHOLD
         value: "0.75"
+      # Tier 1 tunables — see services/reasoning/src/index.ts for what they
+      # control. Defaults are tuned for fast rapid-claim throughput; raise
+      # INTERVENTION_RATE_LIMIT_MS if users feel overwhelmed.
+      - key: INTERVENTION_RATE_LIMIT_MS
+        value: "5000"
+      - key: CLAIM_DEDUPE_TTL_SECONDS
+        value: "60"
+      - key: ROLLING_WINDOW_SIZE
+        value: "5"
+      - key: WINDOW_MIN_TOTAL_LENGTH
+        value: "16"
       - key: CORS_ORIGIN
         sync: false
 

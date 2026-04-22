@@ -37,7 +37,14 @@ const env = createEnv({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
   TAVILY_API_KEY: z.string().optional(),
-  INTERVENTION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75)
+  INTERVENTION_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.75),
+  // Tier 1: knobs that used to be hard-coded. Defaults are tuned to fix the
+  // "only first claim is detected" bug: short rate-limit window + short dedup
+  // TTL so genuinely distinct rapid claims still fire.
+  INTERVENTION_RATE_LIMIT_MS: z.coerce.number().int().nonnegative().default(5000),
+  CLAIM_DEDUPE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(60),
+  ROLLING_WINDOW_SIZE: z.coerce.number().int().min(2).max(12).default(5),
+  WINDOW_MIN_TOTAL_LENGTH: z.coerce.number().int().min(8).max(200).default(16)
 });
 
 initSentry("reasoning-service");
@@ -45,7 +52,21 @@ initSentry("reasoning-service");
 const logger = createLogger("reasoning-service", env.LOG_LEVEL);
 const app = express();
 const transcriptWindowTtlSeconds = 60 * 10;
-const dedupeTtlSeconds = 60 * 5;
+const dedupeTtlSeconds = env.CLAIM_DEDUPE_TTL_SECONDS;
+const rateLimitMs = env.INTERVENTION_RATE_LIMIT_MS;
+const rollingWindowSize = env.ROLLING_WINDOW_SIZE;
+const windowMinTotalLength = env.WINDOW_MIN_TOTAL_LENGTH;
+// Recent-claim dedupe ZSET retention — claims older than this fall out of the
+// per-session "have we seen this?" check. Mirrors dedupeTtlSeconds.
+const recentClaimsTtlSeconds = Math.max(dedupeTtlSeconds, 30);
+
+logger.info({
+  rateLimitMs,
+  dedupeTtlSeconds,
+  rollingWindowSize,
+  windowMinTotalLength,
+  confidenceThreshold: env.INTERVENTION_CONFIDENCE_THRESHOLD
+}, "Reasoning tunables loaded");
 
 const isRealMode = !!env.OPENAI_API_KEY && !!env.TAVILY_API_KEY;
 if (isRealMode) {
@@ -84,30 +105,105 @@ function dedupeKey(sessionId: string, claimText: string) {
   return `session:${sessionId}:claim:${claimIdentityKey(claimText)}`;
 }
 
+// Tier 1: per-session Redis keys for cross-instance coordination. Multiple
+// reasoning workers (autoscaled / restarted) used to drift because rate-limit,
+// last-assessed-signature, and recent-claims state lived in process memory.
+function lastInterventionKey(sessionId: string) {
+  return `session:${sessionId}:rl:lastInterventionAt`;
+}
+
+function lastSignatureKey(sessionId: string) {
+  return `session:${sessionId}:lastAssessedSig`;
+}
+
+function recentClaimsKey(sessionId: string) {
+  return `session:${sessionId}:recentClaims`;
+}
+
 async function bootstrap() {
   const redis = await createRedisConnection(env.REDIS_URL);
   const detectionConsumer = await createRedisConnection(env.REDIS_URL);
   const verificationConsumer = await createRedisConnection(env.REDIS_URL);
   const notificationConsumer = await createRedisConnection(env.REDIS_URL);
-  const lastAssessedSignature = new Map<string, string>();
-  const recentClaimsBySession = new Map<string, Array<{ claimText: string; checkedAtMs: number }>>();
 
-  function rememberClaim(sessionId: string, claimText: string) {
-    const now = Date.now();
-    const nextClaims = [...(recentClaimsBySession.get(sessionId) ?? []), { claimText, checkedAtMs: now }]
-      .filter((entry) => now - entry.checkedAtMs <= dedupeTtlSeconds * 1000)
-      .slice(-12);
-
-    recentClaimsBySession.set(sessionId, nextClaims);
+  /**
+   * Tier 1: Redis-backed "have I assessed this exact 5-segment window before?"
+   * check. Replaces the per-process Map so two reasoning instances handling
+   * the same session don't both re-assess the same window (and don't BOTH
+   * miss new windows after one of them restarts).
+   */
+  async function readLastSignature(sessionId: string): Promise<string | null> {
+    return await redis.get(lastSignatureKey(sessionId));
   }
 
-  function hasEquivalentRecentClaim(sessionId: string, claimText: string) {
-    const now = Date.now();
-    const recentClaims = (recentClaimsBySession.get(sessionId) ?? [])
-      .filter((entry) => now - entry.checkedAtMs <= dedupeTtlSeconds * 1000);
+  async function writeLastSignature(sessionId: string, signature: string): Promise<void> {
+    await redis.set(lastSignatureKey(sessionId), signature, {
+      EX: transcriptWindowTtlSeconds
+    });
+  }
 
-    recentClaimsBySession.set(sessionId, recentClaims);
-    return recentClaims.some((entry) => claimsAreEquivalent(entry.claimText, claimText));
+  /**
+   * Tier 1: Redis LIST of recent claim entries (JSON-encoded {text, ts}) per
+   * session. Capped at 24 entries; entries older than recentClaimsTtlSeconds
+   * are filtered out on read. Used by the equivalence check that catches
+   * duplicates the exact-match dedupe key alone would miss (small
+   * paraphrasings / filler-word variants).
+   *
+   * SimpleRedisClient only supports GET/SET/LIST ops (no ZSET), hence the
+   * list-with-timestamps pattern instead of a scored ZSET.
+   */
+  async function rememberClaim(sessionId: string, claimText: string): Promise<void> {
+    const key = recentClaimsKey(sessionId);
+    const entry = JSON.stringify({ text: claimText, ts: Date.now() });
+    await redis.rPush(key, entry);
+    await redis.lTrim(key, -24, -1);
+    await redis.expire(key, recentClaimsTtlSeconds);
+  }
+
+  async function hasEquivalentRecentClaim(sessionId: string, claimText: string): Promise<boolean> {
+    const key = recentClaimsKey(sessionId);
+    const minTs = Date.now() - recentClaimsTtlSeconds * 1000;
+    const entries = await redis.lRange(key, 0, -1);
+    for (const raw of entries) {
+      try {
+        const parsed = JSON.parse(raw) as { text?: string; ts?: number };
+        if (typeof parsed.text === "string" && (parsed.ts ?? 0) >= minTs) {
+          if (claimsAreEquivalent(parsed.text, claimText)) {
+            return true;
+          }
+        }
+      } catch {
+        // Skip malformed entries — will fall off the end via the 24-entry cap.
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Tier 1: Redis-backed rate limit. Returns the elapsed ms since the last
+   * intervention for this session, or null if there's no record. Atomically
+   * updates the timestamp on a successful take().
+   */
+  async function takeRateLimitSlot(sessionId: string): Promise<{ allowed: boolean; sinceLastMs: number | null }> {
+    if (rateLimitMs <= 0) {
+      // Rate limiting disabled.
+      return { allowed: true, sinceLastMs: null };
+    }
+    const key = lastInterventionKey(sessionId);
+    const now = Date.now();
+    const previous = await redis.get(key);
+    const lastAt = previous ? Number(previous) : null;
+    const sinceLastMs = lastAt ? now - lastAt : null;
+
+    if (sinceLastMs !== null && sinceLastMs < rateLimitMs) {
+      return { allowed: false, sinceLastMs };
+    }
+
+    // Take the slot. TTL = 2× rate-limit so stale records can't pin a
+    // session to a permanent throttle if a reasoning instance dies right
+    // after writing.
+    await redis.set(key, String(now), { EX: Math.max(2, Math.ceil((rateLimitMs * 2) / 1000)) });
+    return { allowed: true, sinceLastMs };
   }
 
   void createJsonConsumer(
@@ -118,22 +214,37 @@ async function bootstrap() {
     (value) => parseStreamPayload(value, transcriptSegmentSchema),
     async (_id, segment) => {
       const key = windowKey(segment.sessionId);
-      // Pipeline: push + trim + expire + read in fewer round-trips
+      // Pipeline: push + trim-to-N + read in as few round-trips as possible.
+      // Tier 1: window expanded from 3 to ROLLING_WINDOW_SIZE (default 5) so
+      // slow claims split across multiple segments stay together long enough
+      // for the LLM to detect them.
       await redis.rPush(key, JSON.stringify(segment));
-      await redis.lTrim(key, -3, -1);
+      await redis.lTrim(key, -rollingWindowSize, -1);
       const [rawSegments] = await Promise.all([
         redis.lRange(key, 0, -1),
         redis.expire(key, transcriptWindowTtlSeconds)
       ]);
       const segments = rawSegments.map((rawSegment) => transcriptSegmentSchema.parse(JSON.parse(rawSegment)));
-      const rollingWindow = buildRollingWindow(segments);
-      const windowSignature = buildWindowSignature(rollingWindow);
+      const rollingWindow = buildRollingWindow(segments, rollingWindowSize);
+      const windowSignature = buildWindowSignature(rollingWindow, rollingWindowSize);
 
-      if (!shouldAssessWindow(rollingWindow, lastAssessedSignature.get(segment.sessionId))) {
+      const previousSignature = await readLastSignature(segment.sessionId);
+
+      if (!shouldAssessWindow(rollingWindow, previousSignature, {
+        minTotalLength: windowMinTotalLength,
+        windowSize: rollingWindowSize
+      })) {
+        logger.debug({
+          sessionId: segment.sessionId,
+          seq: segment.seq,
+          reason: "window-gate",
+          signatureMatchedPrevious: windowSignature === previousSignature,
+          windowChars: windowSignature.length
+        }, "Skipping window");
         return;
       }
 
-      lastAssessedSignature.set(segment.sessionId, windowSignature);
+      await writeLastSignature(segment.sessionId, windowSignature);
       const assessmentStartedAtMs = Date.now();
 
       let assessment;
@@ -156,12 +267,14 @@ async function bootstrap() {
       }
 
       const claimSeen = await redis.get(dedupeKey(segment.sessionId, assessment.claimText));
-      if (claimSeen || hasEquivalentRecentClaim(segment.sessionId, assessment.claimText)) {
+      const equivalentSeen = !claimSeen && (await hasEquivalentRecentClaim(segment.sessionId, assessment.claimText));
+      if (claimSeen || equivalentSeen) {
         logger.info({
           sessionId: segment.sessionId,
           seq: segment.seq,
           claimText: assessment.claimText,
-          assessmentDurationMs
+          assessmentDurationMs,
+          dedupeReason: claimSeen ? "exact-match" : "equivalent-claim"
         }, "Skipped duplicate claim assessment");
         return;
       }
@@ -169,14 +282,16 @@ async function bootstrap() {
       await redis.set(dedupeKey(segment.sessionId, assessment.claimText), "1", {
         EX: dedupeTtlSeconds
       });
-      rememberClaim(segment.sessionId, assessment.claimText);
+      await rememberClaim(segment.sessionId, assessment.claimText);
 
       logger.info({
         sessionId: segment.sessionId,
         seq: segment.seq,
         claimText: assessment.claimText,
         assessmentDurationMs,
-        detectionLagMs: Math.max(0, Date.now() - Date.parse(segment.endedAt))
+        detectionLagMs: Math.max(0, Date.now() - Date.parse(segment.endedAt)),
+        windowSegmentCount: rollingWindow.length,
+        speakerRole: assessment.speakerRole
       }, "Detected claim candidate");
       await xAddJson(redis, STREAM_NAMES.claimsDetected, assessment);
     }
@@ -227,10 +342,10 @@ async function bootstrap() {
     }
   );
 
-  // V2: rate-limit interventions to max 1 per 15 seconds per session so the
-  // user isn't overwhelmed by rapid-fire corrections on dense debate audio.
-  const INTERVENTION_RATE_LIMIT_MS = 15_000;
-  const lastInterventionAtMs = new Map<string, number>();
+  // Tier 1: rate limit was a hardcoded 15s in-memory Map, which dropped every
+  // non-first correction in a rapid sequence AND failed to coordinate across
+  // autoscaled instances. Now: INTERVENTION_RATE_LIMIT_MS env var (default 5s)
+  // applied via a Redis-backed token check so multiple instances share state.
 
   // ── Notification consumer (from notification service) ──
   void createJsonConsumer(
@@ -260,14 +375,13 @@ async function bootstrap() {
         return;
       }
 
-      // V2: rate-limit check
-      const now = Date.now();
-      const lastAt = lastInterventionAtMs.get(result.sessionId) ?? 0;
-      if (now - lastAt < INTERVENTION_RATE_LIMIT_MS) {
+      const rateLimit = await takeRateLimitSlot(result.sessionId);
+      if (!rateLimit.allowed) {
         logger.info({
           sessionId: result.sessionId,
-          msSinceLast: now - lastAt,
-          rateLimitMs: INTERVENTION_RATE_LIMIT_MS
+          msSinceLast: rateLimit.sinceLastMs,
+          rateLimitMs,
+          claimText: result.claimText
         }, "Intervention rate-limited — dropped");
         return;
       }
@@ -275,12 +389,12 @@ async function bootstrap() {
       try {
         const message = createInterventionMessage(result);
         await xAddJson(redis, STREAM_NAMES.notificationsOutbound, message);
-        lastInterventionAtMs.set(result.sessionId, now);
         logger.info({
           sessionId: result.sessionId,
           claimText: result.claimText,
           verdict: result.verdict,
-          attributedTo: message.attributedTo
+          attributedTo: message.attributedTo,
+          msSinceLast: rateLimit.sinceLastMs
         }, "Published intervention notification");
       } catch (error) {
         logger.error({ err: error, sessionId: result.sessionId }, "Failed to publish intervention");

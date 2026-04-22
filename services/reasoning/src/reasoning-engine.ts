@@ -205,6 +205,32 @@ export function claimIdentityKey(text: string) {
   return canonicalizeClaimText(text) || normalizeWhitespace(text).toLowerCase();
 }
 
+/**
+ * A token is "distinguishing" if it's a number or a capitalized word in the
+ * original (pre-canonicalization) claim. Two claims that share all their
+ * filler words but differ on a single year / percentage / proper noun are NOT
+ * duplicates, so we require at least one shared distinguishing token.
+ */
+function extractDistinguishingTokens(rawText: string): Set<string> {
+  const tokens = new Set<string>();
+  for (const raw of rawText.split(/\s+/)) {
+    const trimmed = raw.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+    if (!trimmed) continue;
+    // Numbers (years, percents, counts)
+    if (/\d/.test(trimmed)) {
+      tokens.add(trimmed.toLowerCase());
+      continue;
+    }
+    // Proper nouns — starts with uppercase, length ≥ 3, not a sentence starter
+    // we can't easily distinguish. Erring on the side of inclusion is fine
+    // since we only use these as a "shared distinguisher" check.
+    if (/^[A-Z]/.test(trimmed) && trimmed.length >= 3) {
+      tokens.add(trimmed.toLowerCase());
+    }
+  }
+  return tokens;
+}
+
 export function claimsAreEquivalent(left: string, right: string) {
   const leftIdentity = claimIdentityKey(left);
   const rightIdentity = claimIdentityKey(right);
@@ -217,6 +243,7 @@ export function claimsAreEquivalent(left: string, right: string) {
     return true;
   }
 
+  // Substring containment means one claim is fully the other → still a dup.
   if (leftIdentity.includes(rightIdentity) || rightIdentity.includes(leftIdentity)) {
     return true;
   }
@@ -232,33 +259,73 @@ export function claimsAreEquivalent(left: string, right: string) {
   const shorterLength = Math.min(leftTokens.length, rightTokens.length);
   const longerLength = Math.max(leftTokens.length, rightTokens.length);
 
-  return sharedTokenCount >= 3 && (
-    sharedTokenCount / shorterLength >= 0.8 ||
-    sharedTokenCount / longerLength >= 0.67
-  );
+  // Tier 1: tightened thresholds. Previous values (0.8 / 0.67) merged distinct
+  // claims that happened to share many filler/common words — e.g.
+  // "Trump won the 2016 election" vs "Trump won the 2024 election" shared 4 of
+  // 5 tokens → 0.8 → incorrectly deduplicated. Now require ≥0.9 on the shorter
+  // side OR ≥0.85 on the longer side, AND require at least one shared
+  // "distinguishing" token (number or capitalized word). Two claims that
+  // differ on the one number or proper noun that matters are no longer
+  // treated as duplicates.
+  const highOverlap =
+    sharedTokenCount >= 4 &&
+    (sharedTokenCount / shorterLength >= 0.9 || sharedTokenCount / longerLength >= 0.85);
+
+  if (!highOverlap) {
+    return false;
+  }
+
+  const leftDistinguishers = extractDistinguishingTokens(left);
+  const rightDistinguishers = extractDistinguishingTokens(right);
+
+  // If neither claim has any distinguishers, fall back to overlap alone
+  // (claims without numbers/proper nouns are typically short opinions/fillers
+  // that shouldn't reach the dedup path anyway).
+  if (leftDistinguishers.size === 0 && rightDistinguishers.size === 0) {
+    return true;
+  }
+
+  for (const token of leftDistinguishers) {
+    if (rightDistinguishers.has(token)) {
+      return true;
+    }
+  }
+
+  // Both have distinguishing tokens but none shared → different facts.
+  return false;
 }
 
-export function buildWindowSignature(segments: TranscriptSegment[]) {
+const DEFAULT_WINDOW_SIZE = 5;
+const DEFAULT_WINDOW_MIN_TOTAL_LENGTH = 16;
+
+export function buildWindowSignature(segments: TranscriptSegment[], windowSize = DEFAULT_WINDOW_SIZE) {
   return normalizeWhitespace(
     segments
       .sort((left, right) => left.seq - right.seq)
-      .slice(-3)
+      .slice(-windowSize)
       .map((segment) => segment.text)
       .join(" ")
   ).toLowerCase();
 }
 
-export function shouldAssessWindow(segments: TranscriptSegment[], previousSignature?: string | null) {
+export function shouldAssessWindow(
+  segments: TranscriptSegment[],
+  previousSignature?: string | null,
+  options?: { minTotalLength?: number; windowSize?: number }
+) {
+  const windowSize = options?.windowSize ?? DEFAULT_WINDOW_SIZE;
+  const minTotalLength = options?.minTotalLength ?? DEFAULT_WINDOW_MIN_TOTAL_LENGTH;
+
   const orderedWindow = segments
     .sort((left, right) => left.seq - right.seq)
-    .slice(-3);
+    .slice(-windowSize);
 
   const latestSegment = orderedWindow.at(-1);
   if (!latestSegment) {
     return false;
   }
 
-  const signature = buildWindowSignature(orderedWindow);
+  const signature = buildWindowSignature(orderedWindow, windowSize);
   if (!signature || signature === previousSignature) {
     return false;
   }
@@ -267,7 +334,11 @@ export function shouldAssessWindow(segments: TranscriptSegment[], previousSignat
   const totalLength = signature.length;
   const latestTokenCount = tokenizeText(latestText).length;
 
-  if (totalLength < 24 || latestText.length < 8) {
+  // Tier 1: reduced minimums so claims split across short segments
+  // (e.g. "The United States isn't..." / "a country in North..." / "America.")
+  // aren't gated out when each piece is short. The LLM sees the whole
+  // N-segment window either way.
+  if (totalLength < minTotalLength || latestText.length < 4) {
     return false;
   }
 
@@ -275,7 +346,12 @@ export function shouldAssessWindow(segments: TranscriptSegment[], previousSignat
     return true;
   }
 
-  return latestTokenCount >= 5 || totalLength >= 72;
+  // Trigger when either: (a) the final segment alone is meaningful (≥4
+  // tokens, was ≥5 — loosened slightly), or (b) the whole window has
+  // enough content to analyze (≥48 chars, was ≥72). The 4-token floor
+  // keeps fillers like "he actually like..." from triggering on their
+  // own; their slow-claim partners arrive via the punctuation path.
+  return latestTokenCount >= 4 || totalLength >= 48;
 }
 
 export function createReasoningEngine(config: {
@@ -516,10 +592,10 @@ export async function fetchCitations(query: string, tavilyApiKey?: string) {
   }
 }
 
-export function buildRollingWindow(segments: TranscriptSegment[]) {
+export function buildRollingWindow(segments: TranscriptSegment[], windowSize = DEFAULT_WINDOW_SIZE) {
   return segments
     .sort((left, right) => left.seq - right.seq)
-    .slice(-3);
+    .slice(-windowSize);
 }
 
 export function shouldIntervene(result: ClaimVerificationResult, threshold: number) {
