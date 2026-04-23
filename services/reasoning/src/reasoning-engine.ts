@@ -5,7 +5,7 @@ import { claimAssessmentSchema, claimVerificationResultSchema, sourceCitationSch
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 
-const claimDetectionSchema = z.object({
+const detectedClaimSchema = z.object({
   isVerifiable: z.boolean(),
   claimText: z.string(),
   query: z.string(),
@@ -17,6 +17,18 @@ const claimDetectionSchema = z.object({
   speakerRole: z.enum(["self", "opponent", "unknown"]).default("unknown")
 });
 
+/**
+ * Tier 1.5: multi-claim detection. The LLM now returns ALL distinct
+ * verifiable claims it sees in the window, not just the most prominent
+ * one. Previous "single claim per assessment" behaviour caused rapid-fire
+ * sessions ("Trump won in 2014, 2028, 2020, 2027 …") to publish only
+ * one correction because the LLM read the others as "repeated
+ * restatements" of the dominant claim.
+ */
+const claimDetectionSchema = z.object({
+  claims: z.array(detectedClaimSchema)
+});
+
 const verificationSchema = z.object({
   verdict: z.enum(["true", "false", "misleading", "unverified"]),
   confidence: z.number().min(0).max(1),
@@ -24,7 +36,12 @@ const verificationSchema = z.object({
 });
 
 export type ReasoningEngine = {
-  assessWindow: (sessionId: string, transcriptWindow: TranscriptSegment[]) => Promise<ClaimAssessment | null>;
+  /**
+   * Returns ALL distinct verifiable claims the LLM detected in the transcript
+   * window. May be an empty array when nothing is verifiable. The
+   * detection consumer dedupes each claim independently before publishing.
+   */
+  assessWindow: (sessionId: string, transcriptWindow: TranscriptSegment[]) => Promise<ClaimAssessment[]>;
   verifyClaim: (assessment: ClaimAssessment, citations: SourceCitation[]) => Promise<ClaimVerificationResult>;
 };
 
@@ -365,17 +382,21 @@ export function createReasoningEngine(config: {
 
   const claimPrompt = PromptTemplate.fromTemplate(
     `You are a factual claim detector for a two-person debate fact-checker.\n` +
-      `Review the transcript and decide whether it contains one clear, verifiable factual claim.\n` +
+      `Review the transcript and identify EVERY distinct verifiable factual claim it contains.\n` +
       `Each line is prefixed with the speaker role ([SELF] or [OPPONENT]).\n` +
-      `Ignore filler words, partial fragments, and repeated restatements of the same claim.\n` +
-      `Only return a claim when it can stand on its own as a distinct factual assertion.\n` +
+      `Return one entry in the "claims" array for EACH separate factual assertion. If the speaker\n` +
+      `lists multiple distinct facts (e.g. "Trump won in 2014 and 2028 and 2020"), return a separate\n` +
+      `claim for each year/entity — they are independent facts and must each be verified separately.\n` +
+      `If the same claim is repeated verbatim multiple times in the window, include it only once.\n` +
+      `Ignore filler words and partial fragments.\n` +
       `Do NOT flag clear opinions ("I think...", "I believe...", "In my view..."), rhetorical questions,\n` +
       `or hypotheticals. Focus on verifiable assertions of fact — names, dates, numbers, events, causal claims.\n` +
       `If the claim is attributed to [SELF], apply stricter scrutiny — only flag objectively verifiable statements,\n` +
       `never personal opinions or first-person anecdotes.\n` +
-      `CRITICAL: populate the speakerRole field with the tag of the line the claim was drawn from —\n` +
+      `CRITICAL: populate the speakerRole field on each claim with the tag of the line the claim was drawn from —\n` +
       `"self" if the claim appears on a [SELF] line, "opponent" if it appears on an [OPPONENT] line.\n` +
-      `If the claim text spans both speakers or is ambiguous, return "unknown".\n` +
+      `If a claim spans both speakers or is ambiguous, set its speakerRole to "unknown".\n` +
+      `If the transcript contains no verifiable factual claims at all, return an empty "claims" array.\n` +
       `Respond only using the requested structured schema.\n\nTranscript:\n{transcript}`
   );
 
@@ -410,45 +431,52 @@ export function createReasoningEngine(config: {
         transcript: transcriptText
       });
 
-      if (!result.isVerifiable || !result.claimText.trim()) {
-        return null;
+      const candidates = (result.claims ?? []).filter(
+        (claim) => claim.isVerifiable && claim.claimText.trim().length > 0
+      );
+
+      if (candidates.length === 0) {
+        return [];
       }
 
-      // Prefer the speakerRole the LLM assigned (based on the [SELF]/[OPPONENT]
-      // line tags). If the model returns "unknown", fall back to the speaker
-      // with the largest word share in the window — more robust than
-      // always picking the last segment, which gets the attribution wrong
-      // whenever the user's mid-claim speaker toggle lands a newer segment
-      // in the same 4s window.
-      let speakerRole: "self" | "opponent" | "unknown" = result.speakerRole ?? "unknown";
-      if (speakerRole === "unknown") {
-        const wordsByRole = { self: 0, opponent: 0 };
-        for (const segment of transcriptWindow) {
-          const role = segment.speakerRole;
-          if (role === "self") wordsByRole.self += segment.text.split(/\s+/).length;
-          else if (role === "opponent") wordsByRole.opponent += segment.text.split(/\s+/).length;
-        }
-        if (wordsByRole.self !== wordsByRole.opponent) {
-          speakerRole = wordsByRole.self > wordsByRole.opponent ? "self" : "opponent";
-        } else {
-          // Truly tied (or no labeled segments) — fall back to the latest.
-          speakerRole = (transcriptWindow.at(-1)?.speakerRole ?? "unknown") as typeof speakerRole;
-        }
+      // Pre-compute word share so we can fall back deterministically when the
+      // LLM returns "unknown" speakerRole on any individual claim.
+      const wordsByRole = { self: 0, opponent: 0 };
+      for (const segment of transcriptWindow) {
+        const role = segment.speakerRole;
+        if (role === "self") wordsByRole.self += segment.text.split(/\s+/).length;
+        else if (role === "opponent") wordsByRole.opponent += segment.text.split(/\s+/).length;
+      }
+      const fallbackRole: "self" | "opponent" | "unknown" =
+        wordsByRole.self === wordsByRole.opponent
+          ? ((transcriptWindow.at(-1)?.speakerRole ?? "unknown") as "self" | "opponent" | "unknown")
+          : wordsByRole.self > wordsByRole.opponent
+            ? "self"
+            : "opponent";
+
+      const assessments: ClaimAssessment[] = [];
+      for (const claim of candidates) {
+        const speakerRole: "self" | "opponent" | "unknown" =
+          claim.speakerRole && claim.speakerRole !== "unknown" ? claim.speakerRole : fallbackRole;
+
+        assessments.push(
+          claimAssessmentSchema.parse({
+            claimId: uuidv4(),
+            sessionId,
+            userId: transcriptWindow.find((segment) => segment.userId)?.userId,
+            mode: transcriptWindow.at(-1)?.mode ?? "debate_live",
+            transcriptSegmentIds: transcriptWindow.map((segment) => segment.segmentId),
+            claimText: claim.claimText,
+            query: claim.query || claim.claimText,
+            isVerifiable: claim.isVerifiable,
+            confidence: claim.confidence,
+            rationale: claim.rationale,
+            speakerRole
+          })
+        );
       }
 
-      return claimAssessmentSchema.parse({
-        claimId: uuidv4(),
-        sessionId,
-        userId: transcriptWindow.find((segment) => segment.userId)?.userId,
-        mode: transcriptWindow.at(-1)?.mode ?? "debate_live",
-        transcriptSegmentIds: transcriptWindow.map((segment) => segment.segmentId),
-        claimText: result.claimText,
-        query: result.query || result.claimText,
-        isVerifiable: result.isVerifiable,
-        confidence: result.confidence,
-        rationale: result.rationale,
-        speakerRole
-      });
+      return assessments;
     },
     async verifyClaim(assessment, citations) {
       const evidence = citations
@@ -524,27 +552,29 @@ function createMockReasoningEngine(): ReasoningEngine {
     async assessWindow(sessionId, transcriptWindow) {
       const transcriptText = transcriptWindow.map((segment) => segment.text).join(" ");
       if (!/\bis\b|\bare\b|\bwas\b|\bwere\b/i.test(transcriptText)) {
-        return null;
+        return [];
       }
 
       const claimText = transcriptText.split(/[.?!]/)[0]?.trim() ?? transcriptText.trim();
       if (!claimText) {
-        return null;
+        return [];
       }
 
-      return {
-        claimId: uuidv4(),
-        sessionId,
-        userId: transcriptWindow.find((segment) => segment.userId)?.userId,
-        mode: transcriptWindow.at(-1)?.mode ?? "debate_live",
-        transcriptSegmentIds: transcriptWindow.map((segment) => segment.segmentId),
-        claimText,
-        query: claimText,
-        isVerifiable: true,
-        confidence: 0.77,
-        rationale: "Heuristic mock detector found a declarative factual statement.",
-        speakerRole: transcriptWindow.at(-1)?.speakerRole ?? "unknown"
-      };
+      return [
+        {
+          claimId: uuidv4(),
+          sessionId,
+          userId: transcriptWindow.find((segment) => segment.userId)?.userId,
+          mode: transcriptWindow.at(-1)?.mode ?? "debate_live",
+          transcriptSegmentIds: transcriptWindow.map((segment) => segment.segmentId),
+          claimText,
+          query: claimText,
+          isVerifiable: true,
+          confidence: 0.77,
+          rationale: "Heuristic mock detector found a declarative factual statement.",
+          speakerRole: transcriptWindow.at(-1)?.speakerRole ?? "unknown"
+        }
+      ];
     },
     async verifyClaim(assessment) {
       const normalized = assessment.claimText.toLowerCase();

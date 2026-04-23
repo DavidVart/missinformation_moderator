@@ -247,9 +247,9 @@ async function bootstrap() {
       await writeLastSignature(segment.sessionId, windowSignature);
       const assessmentStartedAtMs = Date.now();
 
-      let assessment;
+      let assessments: Awaited<ReturnType<typeof reasoningEngine.assessWindow>>;
       try {
-        assessment = await reasoningEngine.assessWindow(segment.sessionId, rollingWindow);
+        assessments = await reasoningEngine.assessWindow(segment.sessionId, rollingWindow);
       } catch (error) {
         logger.error({ err: error, sessionId: segment.sessionId, seq: segment.seq }, "Claim detection failed");
         Sentry.captureException(error, {
@@ -261,39 +261,61 @@ async function bootstrap() {
 
       const assessmentDurationMs = Date.now() - assessmentStartedAtMs;
 
-      if (!assessment) {
-        logger.debug({ sessionId: segment.sessionId, seq: segment.seq, assessmentDurationMs }, "No verifiable claim in window");
+      logger.info({
+        sessionId: segment.sessionId,
+        seq: segment.seq,
+        claimCount: assessments.length,
+        assessmentDurationMs,
+        windowSegmentCount: rollingWindow.length,
+        windowChars: windowSignature.length
+      }, assessments.length === 0 ? "No verifiable claims in window" : "Detected claims in window");
+
+      if (assessments.length === 0) {
         return;
       }
 
-      const claimSeen = await redis.get(dedupeKey(segment.sessionId, assessment.claimText));
-      const equivalentSeen = !claimSeen && (await hasEquivalentRecentClaim(segment.sessionId, assessment.claimText));
-      if (claimSeen || equivalentSeen) {
+      let publishedCount = 0;
+      let dedupedCount = 0;
+      for (const assessment of assessments) {
+        const claimSeen = await redis.get(dedupeKey(segment.sessionId, assessment.claimText));
+        const equivalentSeen = !claimSeen && (await hasEquivalentRecentClaim(segment.sessionId, assessment.claimText));
+        if (claimSeen || equivalentSeen) {
+          dedupedCount += 1;
+          logger.info({
+            sessionId: segment.sessionId,
+            seq: segment.seq,
+            claimText: assessment.claimText,
+            dedupeReason: claimSeen ? "exact-match" : "equivalent-claim"
+          }, "Skipped duplicate claim assessment");
+          continue;
+        }
+
+        await redis.set(dedupeKey(segment.sessionId, assessment.claimText), "1", {
+          EX: dedupeTtlSeconds
+        });
+        await rememberClaim(segment.sessionId, assessment.claimText);
+
         logger.info({
           sessionId: segment.sessionId,
           seq: segment.seq,
           claimText: assessment.claimText,
-          assessmentDurationMs,
-          dedupeReason: claimSeen ? "exact-match" : "equivalent-claim"
-        }, "Skipped duplicate claim assessment");
-        return;
+          confidence: assessment.confidence,
+          speakerRole: assessment.speakerRole,
+          detectionLagMs: Math.max(0, Date.now() - Date.parse(segment.endedAt))
+        }, "Published claim candidate");
+        await xAddJson(redis, STREAM_NAMES.claimsDetected, assessment);
+        publishedCount += 1;
       }
 
-      await redis.set(dedupeKey(segment.sessionId, assessment.claimText), "1", {
-        EX: dedupeTtlSeconds
-      });
-      await rememberClaim(segment.sessionId, assessment.claimText);
-
-      logger.info({
-        sessionId: segment.sessionId,
-        seq: segment.seq,
-        claimText: assessment.claimText,
-        assessmentDurationMs,
-        detectionLagMs: Math.max(0, Date.now() - Date.parse(segment.endedAt)),
-        windowSegmentCount: rollingWindow.length,
-        speakerRole: assessment.speakerRole
-      }, "Detected claim candidate");
-      await xAddJson(redis, STREAM_NAMES.claimsDetected, assessment);
+      if (assessments.length > 1) {
+        logger.info({
+          sessionId: segment.sessionId,
+          seq: segment.seq,
+          totalDetected: assessments.length,
+          publishedCount,
+          dedupedCount
+        }, "Multi-claim window summary");
+      }
     }
   );
 
@@ -331,13 +353,25 @@ async function bootstrap() {
       }
 
       await xAddJson(redis, STREAM_NAMES.verdictsCompleted, verification);
+
+      // Observability: explicitly note the outcome class so true/unverified
+      // claims are visible in logs (they previously went silently into the
+      // "did not meet intervention criteria" path with no rationale).
+      const outcome =
+        verification.verdict === "true"
+          ? "true-no-action"
+          : verification.verdict === "unverified"
+            ? "unverified-no-action"
+            : "publishable";
+
       logger.info({
         sessionId: assessment.sessionId,
         claimText: assessment.claimText,
         verdict: verification.verdict,
         confidence: verification.confidence,
         citationCount: citations.length,
-        verificationDurationMs: Date.now() - verificationStartedAtMs
+        verificationDurationMs: Date.now() - verificationStartedAtMs,
+        outcome
       }, "Completed claim verification");
     }
   );
