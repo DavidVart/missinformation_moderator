@@ -14,7 +14,12 @@ const detectedClaimSchema = z.object({
   // V2: which speaker actually made this claim. The prompt tags every line
   // with [SELF] or [OPPONENT]; the model returns whichever speaker's line the
   // claim was drawn from (or "unknown" if ambiguous).
-  speakerRole: z.enum(["self", "opponent", "unknown"]).default("unknown")
+  speakerRole: z.enum(["self", "opponent", "unknown"]).default("unknown"),
+  // Tier 2: when true, the claim's truth depends on recent state
+  // (election outcomes, current prices, sports scores, latest poll, etc.).
+  // The verifier consumer biases Tavily search to the last 30 days for
+  // these so we don't fact-check a 2024 claim against 2019 cached pages.
+  timeSensitive: z.boolean().default(false)
 });
 
 /**
@@ -115,10 +120,15 @@ function normalizeHost(url: string) {
 }
 
 function tokenizeText(text: string) {
+  // Protect decimal numbers (1.7, 3.2, 0.05) before splitting so the dot
+  // doesn't break them into single digits that get filtered out by the
+  // length check. Without this, "1.7 percent" and "3.2 percent" canonicalize
+  // identically and dedup collapses two distinct percentage claims into one.
   return text
     .toLowerCase()
-    .split(/[^a-z0-9]+/i)
-    .map((token) => token.trim())
+    .replace(/(\d)\.(\d)/g, "$1_$2")
+    .split(/[^a-z0-9_]+/i)
+    .map((token) => token.replace(/_/g, ".").trim())
     .filter((token) => token.length >= 3);
 }
 
@@ -381,7 +391,7 @@ export function createReasoningEngine(config: {
   }
 
   const claimPrompt = PromptTemplate.fromTemplate(
-    `You are a factual claim detector for a two-person debate fact-checker.\n` +
+    `You are a factual claim detector for a two-person debate fact-checker. Today's date is {currentDate}.\n` +
       `Review the transcript and identify EVERY distinct verifiable factual claim it contains.\n` +
       `Each line is prefixed with the speaker role ([SELF] or [OPPONENT]).\n` +
       `Return one entry in the "claims" array for EACH separate factual assertion. If the speaker\n` +
@@ -396,13 +406,23 @@ export function createReasoningEngine(config: {
       `CRITICAL: populate the speakerRole field on each claim with the tag of the line the claim was drawn from —\n` +
       `"self" if the claim appears on a [SELF] line, "opponent" if it appears on an [OPPONENT] line.\n` +
       `If a claim spans both speakers or is ambiguous, set its speakerRole to "unknown".\n` +
+      `Set timeSensitive=true when the claim's truth depends on recent state — e.g. current election results,\n` +
+      `live stock or crypto prices, ongoing sports scores, the latest poll, breaking news from the past few weeks,\n` +
+      `or anything phrased with "this year", "last week", "right now", "currently". For stable historical or\n` +
+      `geographical facts (the Eiffel Tower's location, who won WWII, the speed of light), leave it false.\n` +
       `If the transcript contains no verifiable factual claims at all, return an empty "claims" array.\n` +
       `Respond only using the requested structured schema.\n\nTranscript:\n{transcript}`
   );
 
   const verifyPrompt = PromptTemplate.fromTemplate(
-    `You are a fact verifier.\n` +
+    `You are a fact verifier. Today's date is {currentDate}.\n` +
       `Use only the supplied evidence to decide whether the claim is true, false, misleading, or unverifiable.\n` +
+      `When the claim is paraphrasing a real fact with rounded numbers, judge it true within sensible tolerance —\n` +
+      `±5 percentage points for percentage claims, ±10% for raw counts/quantities, ±1 year when the claim\n` +
+      `gives a round year for an event. Only mark "false" or "misleading" when the claim is wrong beyond those\n` +
+      `tolerances or when it asserts the wrong entity, place, or causal direction.\n` +
+      `If the claim is about ongoing or recent state ("current", "this year", "right now"), prefer the most\n` +
+      `recent dated evidence; treat older sources as historical context only.\n` +
       `If the claim is false or misleading, return a direct correction in at most two short sentences.\n` +
       `Lead with the corrected fact. Avoid long background paragraphs, process commentary, or extra speculation.\n\nClaim:\n{claim}\n\nEvidence:\n{evidence}`
   );
@@ -428,7 +448,8 @@ export function createReasoningEngine(config: {
         .join("\n");
 
       const result = await claimChain.invoke({
-        transcript: transcriptText
+        transcript: transcriptText,
+        currentDate: todayIso()
       });
 
       const candidates = (result.claims ?? []).filter(
@@ -471,7 +492,8 @@ export function createReasoningEngine(config: {
             isVerifiable: claim.isVerifiable,
             confidence: claim.confidence,
             rationale: claim.rationale,
-            speakerRole
+            speakerRole,
+            timeSensitive: claim.timeSensitive ?? false
           })
         );
       }
@@ -485,7 +507,8 @@ export function createReasoningEngine(config: {
 
       const result = await verifyChain.invoke({
         claim: assessment.claimText,
-        evidence
+        evidence,
+        currentDate: todayIso()
       });
 
       return claimVerificationResultSchema.parse({
@@ -506,19 +529,43 @@ export function createReasoningEngine(config: {
   };
 }
 
-async function searchTavily(query: string, apiKey: string): Promise<SourceCitation[]> {
+function todayIso(now: Date = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+export function buildTavilyRequestBody(
+  query: string,
+  apiKey: string,
+  options: { timeSensitive?: boolean } = {}
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    api_key: apiKey,
+    query,
+    max_results: 3,
+    include_answer: false,
+    search_depth: "basic"
+  };
+  if (options.timeSensitive) {
+    // Tavily's `days` filter only applies when topic is "news"; switching
+    // topic biases ranking toward recent reporting too, which is what we
+    // want for election results / live stats / current events.
+    body.topic = "news";
+    body.days = 30;
+  }
+  return body;
+}
+
+async function searchTavily(
+  query: string,
+  apiKey: string,
+  options: { timeSensitive?: boolean } = {}
+): Promise<SourceCitation[]> {
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: {
       "content-type": "application/json"
     },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query,
-      max_results: 3,
-      include_answer: false,
-      search_depth: "basic"
-    })
+    body: JSON.stringify(buildTavilyRequestBody(query, apiKey, options))
   });
 
   if (!response.ok) {
@@ -572,7 +619,8 @@ function createMockReasoningEngine(): ReasoningEngine {
           isVerifiable: true,
           confidence: 0.77,
           rationale: "Heuristic mock detector found a declarative factual statement.",
-          speakerRole: transcriptWindow.at(-1)?.speakerRole ?? "unknown"
+          speakerRole: transcriptWindow.at(-1)?.speakerRole ?? "unknown",
+          timeSensitive: false
         }
       ];
     },
@@ -602,12 +650,16 @@ function createMockReasoningEngine(): ReasoningEngine {
   };
 }
 
-export async function fetchCitations(query: string, tavilyApiKey?: string) {
+export async function fetchCitations(
+  query: string,
+  tavilyApiKey?: string,
+  options: { timeSensitive?: boolean } = {}
+) {
   if (!tavilyApiKey) {
     return [] satisfies SourceCitation[];
   }
 
-  const primaryResults = await searchTavily(query, tavilyApiKey);
+  const primaryResults = await searchTavily(query, tavilyApiKey, options);
 
   if (countHighSignalCitations(primaryResults) >= 1) {
     return curateCitations(primaryResults, query);
@@ -615,7 +667,7 @@ export async function fetchCitations(query: string, tavilyApiKey?: string) {
 
   // Single fallback search instead of two parallel ones (saves 1 Tavily credit per claim)
   try {
-    const fallbackResults = await searchTavily(`${query} official source`, tavilyApiKey);
+    const fallbackResults = await searchTavily(`${query} official source`, tavilyApiKey, options);
     return curateCitations([...primaryResults, ...fallbackResults], query);
   } catch {
     return curateCitations(primaryResults, query);

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { claimAssessmentSchema } from "@project-veritas/contracts";
+
 import {
   buildRollingWindow,
+  buildTavilyRequestBody,
   canonicalizeClaimText,
   claimsAreEquivalent,
   curateCitations,
@@ -156,5 +159,55 @@ describe("reasoning helpers", () => {
     expect(shouldAssessWindow(first, signature)).toBe(false);
     // New segment shifts signature → reassess.
     expect(shouldAssessWindow([...first, seg(2, "Actually it is sixty-eight million.")], signature)).toBe(true);
+  });
+
+  // Tier 2: Tavily search bias for time-sensitive claims. Election results,
+  // current prices, and other recent-state claims must not be fact-checked
+  // against years-old cached pages — bias the search toward the last 30 days.
+  it("includes topic=news + days=30 in Tavily body for time-sensitive claims", () => {
+    const body = buildTavilyRequestBody("who won the 2026 election", "k", { timeSensitive: true });
+    expect(body).toMatchObject({ query: "who won the 2026 election", topic: "news", days: 30 });
+  });
+
+  it("omits topic + days from Tavily body for stable historical claims", () => {
+    const body = buildTavilyRequestBody("where is the Eiffel Tower", "k");
+    expect(body.topic).toBeUndefined();
+    expect(body.days).toBeUndefined();
+    expect(body).toMatchObject({ query: "where is the Eiffel Tower", max_results: 3 });
+  });
+
+  it("defaults timeSensitive to false on a deserialized claim assessment", () => {
+    const parsed = claimAssessmentSchema.parse({
+      claimId: "claim_1",
+      sessionId: "session_1",
+      mode: "debate_live",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "The Eiffel Tower is in Paris.",
+      query: "Eiffel Tower location",
+      isVerifiable: true,
+      confidence: 0.9,
+      rationale: "Stable geographic fact.",
+      speakerRole: "self"
+    });
+
+    expect(parsed.timeSensitive).toBe(false);
+  });
+
+  it("preserves timeSensitive=true when the detector flagged it", () => {
+    const parsed = claimAssessmentSchema.parse({
+      claimId: "claim_2",
+      sessionId: "session_1",
+      mode: "debate_live",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "The S&P closed at an all-time high yesterday.",
+      query: "S&P 500 close yesterday",
+      isVerifiable: true,
+      confidence: 0.85,
+      rationale: "Recent market state.",
+      speakerRole: "opponent",
+      timeSensitive: true
+    });
+
+    expect(parsed.timeSensitive).toBe(true);
   });
 });
