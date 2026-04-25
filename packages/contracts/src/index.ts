@@ -158,7 +158,8 @@ export const claimAssessmentSchema = z.object({
   isVerifiable: z.boolean(),
   confidence: z.number().min(0).max(1),
   rationale: z.string(),
-  speakerRole: speakerRoleSchema.default("unknown")
+  speakerRole: speakerRoleSchema.default("unknown"),
+  timeSensitive: z.boolean().default(false)
 });
 
 export type ClaimAssessment = z.infer<typeof claimAssessmentSchema>;

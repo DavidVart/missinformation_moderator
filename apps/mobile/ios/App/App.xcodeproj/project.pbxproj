@@ -107,6 +107,7 @@
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
 				B128725CC8B86416A33A8C85 /* [CP] Embed Pods Frameworks */,
+				D6E8F1A3B5C7D9E0F2A4B6C8 /* Strip provenance xattrs */,
 			);
 			buildRules = (
 			);
@@ -169,6 +170,21 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		D6E8F1A3B5C7D9E0F2A4B6C8 /* Strip provenance xattrs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Strip provenance xattrs";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Strip com.apple.provenance xattrs that macOS Sonoma+ stamps on Xcode\n# build outputs. Without this, codesign fails with \"resource fork, Finder\n# information, or similar detritus not allowed\" on physical-device builds.\nxattr -cr \"${CODESIGNING_FOLDER_PATH}\" 2>/dev/null || true\n";
+			showEnvVarsInLog = 0;
+		};
 		B128725CC8B86416A33A8C85 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;

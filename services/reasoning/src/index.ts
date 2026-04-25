@@ -330,12 +330,21 @@ async function bootstrap() {
 
       let citations: SourceCitation[];
       try {
-        citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY);
+        citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY, {
+          timeSensitive: assessment.timeSensitive
+        });
       } catch (error) {
-        logger.error({ err: error, claimText: assessment.claimText }, "Tavily citation fetch failed");
+        logger.error(
+          { err: error, claimText: assessment.claimText, timeSensitive: assessment.timeSensitive },
+          "Tavily citation fetch failed"
+        );
         Sentry.captureException(error, {
           tags: { phase: "citation", sessionId: assessment.sessionId },
-          extra: { query: assessment.query, claimText: assessment.claimText }
+          extra: {
+            query: assessment.query,
+            claimText: assessment.claimText,
+            timeSensitive: assessment.timeSensitive
+          }
         });
         citations = [];
       }
@@ -371,6 +380,7 @@ async function bootstrap() {
         confidence: verification.confidence,
         citationCount: citations.length,
         verificationDurationMs: Date.now() - verificationStartedAtMs,
+        timeSensitive: assessment.timeSensitive,
         outcome
       }, "Completed claim verification");
     }

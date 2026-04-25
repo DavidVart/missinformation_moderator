@@ -24,4 +24,21 @@ end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
+
+  # macOS Sonoma+ stamps Xcode build outputs with the com.apple.provenance
+  # xattr, which then breaks codesign on physical-device builds with
+  # "resource fork, Finder information, or similar detritus not allowed".
+  # CocoaPods regenerates Pods-*-frameworks.sh on every install, so we
+  # re-patch each one here to strip xattrs before signing every framework.
+  Dir.glob(File.join(installer.config.installation_root, 'Pods', 'Target Support Files', '*', 'Pods-*-frameworks.sh')).each do |script|
+    contents = File.read(script)
+    next if contents.include?('xattr-provenance-fix')
+    # Match `code_sign_if_enabled "${destination}/..."` allowing nested quotes
+    # (e.g. `$(basename "$1")`) by matching everything up to the trailing `"$`.
+    patched = contents.gsub(
+      /^(\s*)code_sign_if_enabled "(\$\{destination\}.*)"$/,
+      "\\1# xattr-provenance-fix\n\\1xattr -cr \"\\2\" 2>/dev/null || true\n\\1code_sign_if_enabled \"\\2\""
+    )
+    File.write(script, patched)
+  end
 end
