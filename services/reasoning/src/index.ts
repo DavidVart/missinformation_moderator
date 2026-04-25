@@ -44,7 +44,19 @@ const env = createEnv({
   INTERVENTION_RATE_LIMIT_MS: z.coerce.number().int().nonnegative().default(5000),
   CLAIM_DEDUPE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(60),
   ROLLING_WINDOW_SIZE: z.coerce.number().int().min(2).max(12).default(5),
-  WINDOW_MIN_TOTAL_LENGTH: z.coerce.number().int().min(8).max(200).default(16)
+  WINDOW_MIN_TOTAL_LENGTH: z.coerce.number().int().min(8).max(200).default(16),
+  // Tier 2.5: separate "we already corrected this for the user" memory from
+  // the short detection dedup. Detection dedup has to be short so genuinely
+  // re-stated claims still re-detect; intervention dedup needs to be long
+  // so we don't double-correct the same fact mid-session (60s TTL was just
+  // barely missing repeats — same claim corrected twice, 62s apart).
+  INTERVENTION_SESSION_DEDUPE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(600),
+  // Tier 2.5: how far back Tavily should look when assessment.timeSensitive
+  // is true. 30 days was too narrow — anchor events (election, inauguration)
+  // sat 12+ months back and never made it into the result set, so the
+  // verifier wrongly returned "false" on still-true claims like "current
+  // president = Trump".
+  TAVILY_TIME_SENSITIVE_DAYS: z.coerce.number().int().positive().default(365)
 });
 
 initSentry("reasoning-service");
@@ -56,6 +68,8 @@ const dedupeTtlSeconds = env.CLAIM_DEDUPE_TTL_SECONDS;
 const rateLimitMs = env.INTERVENTION_RATE_LIMIT_MS;
 const rollingWindowSize = env.ROLLING_WINDOW_SIZE;
 const windowMinTotalLength = env.WINDOW_MIN_TOTAL_LENGTH;
+const interventionSessionDedupeTtlSeconds = env.INTERVENTION_SESSION_DEDUPE_TTL_SECONDS;
+const tavilyTimeSensitiveDays = env.TAVILY_TIME_SENSITIVE_DAYS;
 // Recent-claim dedupe ZSET retention — claims older than this fall out of the
 // per-session "have we seen this?" check. Mirrors dedupeTtlSeconds.
 const recentClaimsTtlSeconds = Math.max(dedupeTtlSeconds, 30);
@@ -63,6 +77,8 @@ const recentClaimsTtlSeconds = Math.max(dedupeTtlSeconds, 30);
 logger.info({
   rateLimitMs,
   dedupeTtlSeconds,
+  interventionSessionDedupeTtlSeconds,
+  tavilyTimeSensitiveDays,
   rollingWindowSize,
   windowMinTotalLength,
   confidenceThreshold: env.INTERVENTION_CONFIDENCE_THRESHOLD
@@ -118,6 +134,14 @@ function lastSignatureKey(sessionId: string) {
 
 function recentClaimsKey(sessionId: string) {
   return `session:${sessionId}:recentClaims`;
+}
+
+// Tier 2.5: per-session "intervention already published for this canonical
+// claim" guard. Sits at notification publish time, separate from the short
+// detection-dedup TTL so we don't double-correct the user mid-session
+// even when detection legitimately re-fires.
+function correctedClaimKey(sessionId: string, claimText: string) {
+  return `session:${sessionId}:corrected:${claimIdentityKey(claimText)}`;
 }
 
 async function bootstrap() {
@@ -177,6 +201,19 @@ async function bootstrap() {
       }
     }
     return false;
+  }
+
+  async function hasAlreadyCorrected(sessionId: string, claimText: string): Promise<boolean> {
+    if (interventionSessionDedupeTtlSeconds <= 0) return false;
+    const v = await redis.get(correctedClaimKey(sessionId, claimText));
+    return v !== null;
+  }
+
+  async function markCorrected(sessionId: string, claimText: string): Promise<void> {
+    if (interventionSessionDedupeTtlSeconds <= 0) return;
+    await redis.set(correctedClaimKey(sessionId, claimText), "1", {
+      EX: interventionSessionDedupeTtlSeconds
+    });
   }
 
   /**
@@ -331,7 +368,8 @@ async function bootstrap() {
       let citations: SourceCitation[];
       try {
         citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY, {
-          timeSensitive: assessment.timeSensitive
+          timeSensitive: assessment.timeSensitive,
+          timeSensitiveDays: tavilyTimeSensitiveDays
         });
       } catch (error) {
         logger.error(
@@ -419,6 +457,15 @@ async function bootstrap() {
         return;
       }
 
+      if (await hasAlreadyCorrected(result.sessionId, result.claimText)) {
+        logger.info({
+          sessionId: result.sessionId,
+          claimText: result.claimText,
+          verdict: result.verdict
+        }, "Intervention session-deduped — already corrected this session");
+        return;
+      }
+
       const rateLimit = await takeRateLimitSlot(result.sessionId);
       if (!rateLimit.allowed) {
         logger.info({
@@ -433,6 +480,7 @@ async function bootstrap() {
       try {
         const message = createInterventionMessage(result);
         await xAddJson(redis, STREAM_NAMES.notificationsOutbound, message);
+        await markCorrected(result.sessionId, result.claimText);
         logger.info({
           sessionId: result.sessionId,
           claimText: result.claimText,

@@ -141,6 +141,23 @@ function hasTerminalPunctuation(text: string) {
   return /[!?]["')\]]*$/.test(trimmed) || /(?<!\.)\.(?!\.)["')\]]*$/.test(trimmed);
 }
 
+/**
+ * Detection-time guard against partial-utterance claims like "The S&P 500
+ * went up 1" — a transcript fragment where the speaker had said "1.7%" but
+ * the next segment with the decimal hadn't arrived yet. Without this filter
+ * the truncated version gets published, the dedup blocks the later complete
+ * "1.7%" version, and the user sees a corrupted intervention.
+ *
+ * Heuristic: claim ends with a quantifier word ("up", "down", "to", "by",
+ * "is", "was", etc.) followed by a 1–3 digit bare number with optional
+ * trailing dot, no `%`, no decimal, no unit. Year numbers (4 digits) and
+ * counts with units survive.
+ */
+export function looksTruncated(text: string): boolean {
+  const trimmed = text.trim();
+  return /\b(up|down|to|by|at|of|over|under|about|near|is|was|were|are)\s+\d{1,3}\.?$/i.test(trimmed);
+}
+
 function overlapCount(left: string[], right: string[]) {
   const rightSet = new Set(right);
   return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0);
@@ -421,6 +438,11 @@ export function createReasoningEngine(config: {
       `±5 percentage points for percentage claims, ±10% for raw counts/quantities, ±1 year when the claim\n` +
       `gives a round year for an event. Only mark "false" or "misleading" when the claim is wrong beyond those\n` +
       `tolerances or when it asserts the wrong entity, place, or causal direction.\n` +
+      `CRITICAL for time-sensitive claims (current president, recent election outcomes, ongoing prices, latest\n` +
+      `polls, this-year/this-week claims): if the most recent dated evidence contradicts your training-cutoff\n` +
+      `intuition, TRUST THE EVIDENCE. The world changes after model training; today's date is {currentDate} and\n` +
+      `the dated evidence is authoritative. Do not return "false" against fresh evidence just because your\n` +
+      `internal knowledge says otherwise — your knowledge may be stale.\n` +
       `If the claim is about ongoing or recent state ("current", "this year", "right now"), prefer the most\n` +
       `recent dated evidence; treat older sources as historical context only.\n` +
       `If the claim is false or misleading, return a direct correction in at most two short sentences.\n` +
@@ -453,7 +475,10 @@ export function createReasoningEngine(config: {
       });
 
       const candidates = (result.claims ?? []).filter(
-        (claim) => claim.isVerifiable && claim.claimText.trim().length > 0
+        (claim) =>
+          claim.isVerifiable &&
+          claim.claimText.trim().length > 0 &&
+          !looksTruncated(claim.claimText)
       );
 
       if (candidates.length === 0) {
@@ -533,10 +558,27 @@ function todayIso(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
 }
 
+export type TavilySearchOptions = {
+  timeSensitive?: boolean;
+  /**
+   * How far back to search when timeSensitive is true. The original 30-day
+   * default missed anchor events sitting just outside the window — e.g.
+   * verifying "current president" in 2026-04 against news ≥ 30 days old
+   * meant the inauguration / election-result articles never showed up,
+   * the LLM fell back on training-cutoff intuition, and returned wrong
+   * verdicts. 365 days catches the full term + result coverage. Wire as
+   * env-configurable so we can tune later if hyper-recent claims (live
+   * scores, today's prices) need a narrower window.
+   */
+  timeSensitiveDays?: number;
+};
+
+const DEFAULT_TIME_SENSITIVE_DAYS = 365;
+
 export function buildTavilyRequestBody(
   query: string,
   apiKey: string,
-  options: { timeSensitive?: boolean } = {}
+  options: TavilySearchOptions = {}
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     api_key: apiKey,
@@ -550,7 +592,7 @@ export function buildTavilyRequestBody(
     // topic biases ranking toward recent reporting too, which is what we
     // want for election results / live stats / current events.
     body.topic = "news";
-    body.days = 30;
+    body.days = options.timeSensitiveDays ?? DEFAULT_TIME_SENSITIVE_DAYS;
   }
   return body;
 }
@@ -558,7 +600,7 @@ export function buildTavilyRequestBody(
 async function searchTavily(
   query: string,
   apiKey: string,
-  options: { timeSensitive?: boolean } = {}
+  options: TavilySearchOptions = {}
 ): Promise<SourceCitation[]> {
   const response = await fetch("https://api.tavily.com/search", {
     method: "POST",
@@ -653,7 +695,7 @@ function createMockReasoningEngine(): ReasoningEngine {
 export async function fetchCitations(
   query: string,
   tavilyApiKey?: string,
-  options: { timeSensitive?: boolean } = {}
+  options: TavilySearchOptions = {}
 ) {
   if (!tavilyApiKey) {
     return [] satisfies SourceCitation[];

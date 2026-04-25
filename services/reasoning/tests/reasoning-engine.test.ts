@@ -8,6 +8,7 @@ import {
   canonicalizeClaimText,
   claimsAreEquivalent,
   curateCitations,
+  looksTruncated,
   shouldAssessWindow,
   shouldIntervene
 } from "../src/reasoning-engine.js";
@@ -163,10 +164,22 @@ describe("reasoning helpers", () => {
 
   // Tier 2: Tavily search bias for time-sensitive claims. Election results,
   // current prices, and other recent-state claims must not be fact-checked
-  // against years-old cached pages — bias the search toward the last 30 days.
-  it("includes topic=news + days=30 in Tavily body for time-sensitive claims", () => {
-    const body = buildTavilyRequestBody("who won the 2026 election", "k", { timeSensitive: true });
-    expect(body).toMatchObject({ query: "who won the 2026 election", topic: "news", days: 30 });
+  // against years-old cached pages — switch to news topic + a recent
+  // window. Tier 2.5 widened the default window from 30 to 365 days after
+  // dogfood showed 30 days excluded anchor events (the Nov 2024 election
+  // was 18 months back from "today" 2026-04, outside the window, so the
+  // verifier wrongly flagged "Trump won 2024" as false).
+  it("defaults to topic=news + days=365 in Tavily body for time-sensitive claims", () => {
+    const body = buildTavilyRequestBody("who won the 2024 election", "k", { timeSensitive: true });
+    expect(body).toMatchObject({ query: "who won the 2024 election", topic: "news", days: 365 });
+  });
+
+  it("honors a custom timeSensitiveDays override on the Tavily body", () => {
+    const body = buildTavilyRequestBody("S&P close yesterday", "k", {
+      timeSensitive: true,
+      timeSensitiveDays: 7
+    });
+    expect(body).toMatchObject({ topic: "news", days: 7 });
   });
 
   it("omits topic + days from Tavily body for stable historical claims", () => {
@@ -174,6 +187,31 @@ describe("reasoning helpers", () => {
     expect(body.topic).toBeUndefined();
     expect(body.days).toBeUndefined();
     expect(body).toMatchObject({ query: "where is the Eiffel Tower", max_results: 3 });
+  });
+
+  // Tier 2.5: detection-time guard against partial-utterance claims. The
+  // dogfood produced "The S&P 500 went up 1" because the transcript split
+  // "1.7%" across a segment boundary — that truncated claim got published,
+  // dedup then blocked the later complete "1.7%" version, and the user saw
+  // a corrupted intervention. Drop claims that look mid-sentence so the
+  // next window's complete version gets through.
+  it("flags truncated claims ending with a quantifier + bare 1-3 digit number", () => {
+    expect(looksTruncated("The S&P 500 went up 1")).toBe(true);
+    expect(looksTruncated("It went up 1.")).toBe(true);
+    expect(looksTruncated("The stock fell to 50")).toBe(true);
+    expect(looksTruncated("Inflation is 8")).toBe(true);
+  });
+
+  it("does not flag complete claims as truncated", () => {
+    // 4-digit years are not truncated (they're complete).
+    expect(looksTruncated("Trump won in 2016")).toBe(false);
+    // Decimals + units are complete.
+    expect(looksTruncated("The S&P 500 went up 1.7%")).toBe(false);
+    expect(looksTruncated("It went up 0.5%")).toBe(false);
+    // Counts that don't end with a bare digit are complete.
+    expect(looksTruncated("Joe Biden received 306 electoral votes")).toBe(false);
+    // Stable factual statements are complete.
+    expect(looksTruncated("The Eiffel Tower is in Paris")).toBe(false);
   });
 
   it("defaults timeSensitive to false on a deserialized claim assessment", () => {
