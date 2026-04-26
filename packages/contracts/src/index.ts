@@ -16,6 +16,15 @@ export const leaderboardVisibilitySchema = z.enum(["private", "public"]);
 export const speakerRoleSchema = z.enum(["self", "opponent", "unknown"]);
 export type SpeakerRole = z.infer<typeof speakerRoleSchema>;
 
+/**
+ * Tier 2 sensitivity level set per session at start-debate time. Strict
+ * raises the verification confidence required to fire a correction (fewer
+ * interventions, higher precision); Lenient lowers it (more interventions,
+ * higher recall); Balanced is the existing default.
+ */
+export const sensitivityLevelSchema = z.enum(["strict", "balanced", "lenient"]);
+export type SensitivityLevel = z.infer<typeof sensitivityLevelSchema>;
+
 export const topicSlugSchema = z.enum([
   "politics",
   "economics",
@@ -89,7 +98,8 @@ export const sessionStartPayloadSchema = z.object({
   mode: sessionModeSchema.default("debate_live"),
   chunkMs: z.literal(4000),
   sampleRate: z.literal(16000),
-  preferredLanguage: z.string().min(2).max(8).optional()
+  preferredLanguage: z.string().min(2).max(8).optional(),
+  sensitivity: sensitivityLevelSchema.default("balanced")
 });
 
 export type SessionStartPayload = z.infer<typeof sessionStartPayloadSchema>;

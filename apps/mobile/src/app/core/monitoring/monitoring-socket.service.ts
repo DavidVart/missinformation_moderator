@@ -1,5 +1,5 @@
 import { Injectable } from "@angular/core";
-import { interventionMessageSchema, SessionMode, type SpeakerRole, transcriptSegmentSchema } from "@project-veritas/contracts";
+import { interventionMessageSchema, SessionMode, type SensitivityLevel, type SpeakerRole, transcriptSegmentSchema } from "@project-veritas/contracts";
 import { BehaviorSubject, Subject } from "rxjs";
 import { io, Socket } from "socket.io-client";
 import { environment } from "../../../environments/environment";
@@ -97,7 +97,12 @@ export class MonitoringSocketService {
     }
   }
 
-  async startSession(deviceId: string, mode: SessionMode = "debate_live", userId?: string) {
+  async startSession(
+    deviceId: string,
+    mode: SessionMode = "debate_live",
+    userId?: string,
+    sensitivity: SensitivityLevel = "balanced"
+  ) {
     await this.ensureConnected();
 
     const ack = await this.emitWithAck("session:start", {
@@ -106,7 +111,8 @@ export class MonitoringSocketService {
       mode,
       chunkMs: 4000,
       sampleRate: 16000,
-      preferredLanguage: preferredLanguage()
+      preferredLanguage: preferredLanguage(),
+      sensitivity
     });
 
     if (ack.ok && ack.sessionId) {

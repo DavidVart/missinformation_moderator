@@ -54,6 +54,7 @@ import type {
   InterventionMessage,
   LeaderboardEntry,
   MonthlyReflection,
+  SensitivityLevel,
   SessionMode,
   TopicMisinformationPoint,
   TopicSummary,
@@ -199,6 +200,17 @@ export class AppComponent implements OnDestroy {
     { mode: "debate_live", label: "Live Debate" },
     { mode: "silent_review", label: "Silent Review" },
     { mode: "conversation_score", label: "Scoring" }
+  ];
+
+  // ───────────────── Sensitivity ─────────────────
+  // Tier 2: per-session strictness selector. Strict/Balanced/Lenient maps to
+  // a confidence threshold offset on the server (+0.10 / 0 / -0.10 from the
+  // INTERVENTION_CONFIDENCE_THRESHOLD env var). In-memory like selectedMode.
+  protected readonly selectedSensitivity = signal<SensitivityLevel>("balanced");
+  protected readonly visibleSensitivities: { level: SensitivityLevel; label: string }[] = [
+    { level: "strict", label: "Strict" },
+    { level: "balanced", label: "Balanced" },
+    { level: "lenient", label: "Lenient" }
   ];
 
   // ───────────────── Rankings ─────────────────
@@ -1156,6 +1168,11 @@ export class AppComponent implements OnDestroy {
     this.posthog.capture("session_mode_selected", { mode });
   }
 
+  protected selectSensitivity(level: SensitivityLevel) {
+    this.selectedSensitivity.set(level);
+    this.posthog.capture("sensitivity_selected", { level });
+  }
+
   // ───────────────────── Rankings ─────────────────────
 
   protected selectRankingsSubTab(sub: RankingsSubTab) {
@@ -1458,7 +1475,12 @@ export class AppComponent implements OnDestroy {
 
     try {
       const userId = this.auth.userId() ?? undefined;
-      const sessionId = await this.socketService.startSession(this.deviceId, this.selectedMode(), userId);
+      const sessionId = await this.socketService.startSession(
+        this.deviceId,
+        this.selectedMode(),
+        userId,
+        this.selectedSensitivity()
+      );
       this.sessionId.set(sessionId);
       this.sessionStartedAtMs.set(Date.now());
       this.transcriptSegments.set([]);

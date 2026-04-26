@@ -241,6 +241,7 @@ async function bootstrap() {
           startedAt: sessionEvent.startedAt,
           chunkMs: payload.chunkMs,
           sampleRate: payload.sampleRate,
+          sensitivity: payload.sensitivity,
           ...(payload.preferredLanguage ? { preferredLanguage: payload.preferredLanguage } : {})
         };
 
@@ -283,7 +284,8 @@ async function bootstrap() {
           startedAt: z.string(),
           chunkMs: z.number().int().positive(),
           sampleRate: z.number().int().positive(),
-          preferredLanguage: z.string().optional()
+          preferredLanguage: z.string().optional(),
+          sensitivity: sessionStartPayloadSchema.shape.sensitivity
         }).parse(JSON.parse(metaRaw));
 
         const envelope = createAudioChunkEnvelope(
@@ -331,7 +333,8 @@ async function bootstrap() {
           startedAt: z.string(),
           chunkMs: z.number().int().positive(),
           sampleRate: z.number().int().positive(),
-          preferredLanguage: z.string().optional()
+          preferredLanguage: z.string().optional(),
+          sensitivity: sessionStartPayloadSchema.shape.sensitivity
         }).parse(JSON.parse(metaRaw));
 
         const sessionEvent = createSessionStoppedEvent(

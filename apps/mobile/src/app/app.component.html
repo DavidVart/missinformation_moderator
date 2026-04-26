@@ -84,6 +84,24 @@
                   }
                 </div>
 
+                <!-- Sensitivity selector (Strict / Balanced / Lenient) -->
+                <div class="sensitivity-block">
+                  <span class="sensitivity-label">Sensitivity</span>
+                  <div class="mode-card" role="tablist" aria-label="Correction sensitivity">
+                    @for (opt of visibleSensitivities; track opt.level) {
+                      <button
+                        class="mode-card__segment"
+                        [class.is-active]="selectedSensitivity() === opt.level"
+                        type="button"
+                        role="tab"
+                        [attr.aria-selected]="selectedSensitivity() === opt.level"
+                        (click)="selectSensitivity(opt.level)">
+                        {{ opt.label }}
+                      </button>
+                    }
+                  </div>
+                </div>
+
                 @if (micError()) {
                   <div class="inline-alert inline-alert--error">
                     {{ micError() }}

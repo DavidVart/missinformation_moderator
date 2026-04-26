@@ -5,13 +5,16 @@ import {
   createEnv,
   createJsonConsumer,
   createRedisConnection,
+  sessionMetaKey,
   xAddJson
 } from "@project-veritas/config";
 import {
   claimAssessmentSchema,
   claimVerificationResultSchema,
   parseStreamPayload,
+  sensitivityLevelSchema,
   transcriptSegmentSchema,
+  type SensitivityLevel,
   type SourceCitation
 } from "@project-veritas/contracts";
 import { Sentry, createHttpLogger, createLogger, initSentry } from "@project-veritas/observability";
@@ -144,6 +147,25 @@ function correctedClaimKey(sessionId: string, claimText: string) {
   return `session:${sessionId}:corrected:${claimIdentityKey(claimText)}`;
 }
 
+/**
+ * Tier 2 sensitivity selector: maps the per-session level chosen at
+ * start-debate time into an effective base threshold. Strict +0.10 (fewer,
+ * higher-precision corrections), Lenient -0.10 (more, higher-recall),
+ * Balanced no change. The notification helper still applies its asymmetric
+ * +0.10 for "self" claims on top of this, so Strict+self caps at 0.95.
+ */
+function thresholdForSensitivity(level: SensitivityLevel, baseThreshold: number): number {
+  switch (level) {
+    case "strict":
+      return Math.min(0.95, baseThreshold + 0.10);
+    case "lenient":
+      return Math.max(0.5, baseThreshold - 0.10);
+    case "balanced":
+    default:
+      return baseThreshold;
+  }
+}
+
 async function bootstrap() {
   const redis = await createRedisConnection(env.REDIS_URL);
   const detectionConsumer = await createRedisConnection(env.REDIS_URL);
@@ -214,6 +236,25 @@ async function bootstrap() {
     await redis.set(correctedClaimKey(sessionId, claimText), "1", {
       EX: interventionSessionDedupeTtlSeconds
     });
+  }
+
+  /**
+   * Read the sensitivity level the user picked at start-debate time. The
+   * ingest service writes the per-session meta blob (deviceId, mode,
+   * sensitivity, etc.) under sessionMetaKey at session:start; we read it
+   * here and fall back to "balanced" if the meta is missing or malformed
+   * so an old/legacy session never accidentally goes silent.
+   */
+  async function getSessionSensitivity(sessionId: string): Promise<SensitivityLevel> {
+    try {
+      const metaRaw = await redis.get(sessionMetaKey(sessionId));
+      if (!metaRaw) return "balanced";
+      const meta = JSON.parse(metaRaw) as { sensitivity?: unknown };
+      const parsed = sensitivityLevelSchema.safeParse(meta.sensitivity ?? "balanced");
+      return parsed.success ? parsed.data : "balanced";
+    } catch {
+      return "balanced";
+    }
   }
 
   /**
@@ -446,13 +487,17 @@ async function bootstrap() {
         speakerRole: result.speakerRole
       }, "Received verdict for notification");
 
-      if (!shouldPublishNotification(result, env.INTERVENTION_CONFIDENCE_THRESHOLD)) {
+      const sensitivity = await getSessionSensitivity(result.sessionId);
+      const effectiveThreshold = thresholdForSensitivity(sensitivity, env.INTERVENTION_CONFIDENCE_THRESHOLD);
+
+      if (!shouldPublishNotification(result, effectiveThreshold)) {
         logger.info({
           sessionId: result.sessionId,
           verdict: result.verdict,
           confidence: result.confidence,
           speakerRole: result.speakerRole,
-          threshold: env.INTERVENTION_CONFIDENCE_THRESHOLD
+          threshold: effectiveThreshold,
+          sensitivity
         }, "Verdict did not meet intervention criteria");
         return;
       }
@@ -486,7 +531,9 @@ async function bootstrap() {
           claimText: result.claimText,
           verdict: result.verdict,
           attributedTo: message.attributedTo,
-          msSinceLast: rateLimit.sinceLastMs
+          msSinceLast: rateLimit.sinceLastMs,
+          sensitivity,
+          effectiveThreshold
         }, "Published intervention notification");
       } catch (error) {
         logger.error({ err: error, sessionId: result.sessionId }, "Failed to publish intervention");
