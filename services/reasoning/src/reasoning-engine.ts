@@ -158,6 +158,24 @@ export function looksTruncated(text: string): boolean {
   return /\b(up|down|to|by|at|of|over|under|about|near|is|was|were|are)\s+\d{1,3}\.?$/i.test(trimmed);
 }
 
+/**
+ * Detection-time guard against subject-less fragment claims like "1.7%." —
+ * the LLM occasionally pulls a bare number/percentage out of a window when
+ * the surrounding subject is in a different segment. A claim with no
+ * substantive words can't be meaningfully fact-checked: "is 1.7% true?"
+ * has no answer without knowing what 1.7% refers to. The verifier ends up
+ * picking an arbitrary frame ("S&P annual return is 13", "average inflation
+ * is...") and emits a nonsensical correction.
+ *
+ * Rule: require ≥ 2 alphabetic word tokens (sequences of 2+ letters). Bare
+ * numbers, percentages, single-letter tickers, and pure punctuation get
+ * dropped; full sentences with at least a subject + verb survive.
+ */
+export function isFragmentClaim(text: string): boolean {
+  const words = text.match(/[a-z]{2,}/gi) ?? [];
+  return words.length < 2;
+}
+
 function overlapCount(left: string[], right: string[]) {
   const rightSet = new Set(right);
   return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0);
@@ -445,6 +463,14 @@ export function createReasoningEngine(config: {
       `internal knowledge says otherwise — your knowledge may be stale.\n` +
       `If the claim is about ongoing or recent state ("current", "this year", "right now"), prefer the most\n` +
       `recent dated evidence; treat older sources as historical context only.\n` +
+      `TEMPORAL SANITY CHECK (very important): each evidence item is prefixed with its publication date in\n` +
+      `[YYYY-MM-DD] form. Today's date is {currentDate}. Before finalizing your verdict and correction:\n` +
+      `  • A date EARLIER than {currentDate} is in the PAST. Events scheduled for those dates have already\n` +
+      `    occurred. Do not say "expected to launch", "is planned for", "will happen on" about a date that\n` +
+      `    is now in the past — the event has happened.\n` +
+      `  • If you would write a correction containing a future-tense phrase ("has not been released yet",\n` +
+      `    "is expected to", "will be") about a date that's earlier than {currentDate}, your verdict is wrong\n` +
+      `    and your evidence is stale. Re-read the evidence for newer dated sources before answering.\n` +
       `If the claim is false or misleading, return a direct correction in at most two short sentences.\n` +
       `Lead with the corrected fact. Avoid long background paragraphs, process commentary, or extra speculation.\n\nClaim:\n{claim}\n\nEvidence:\n{evidence}`
   );
@@ -478,7 +504,8 @@ export function createReasoningEngine(config: {
         (claim) =>
           claim.isVerifiable &&
           claim.claimText.trim().length > 0 &&
-          !looksTruncated(claim.claimText)
+          !looksTruncated(claim.claimText) &&
+          !isFragmentClaim(claim.claimText)
       );
 
       if (candidates.length === 0) {
@@ -526,8 +553,15 @@ export function createReasoningEngine(config: {
       return assessments;
     },
     async verifyClaim(assessment, citations) {
+      // Surface each source's publication date so the verifier can run the
+      // temporal sanity check from the prompt — without a visible date the
+      // LLM treated stale "expected to launch" articles as still-future and
+      // returned wrong verdicts on events that had already occurred.
       const evidence = citations
-        .map((citation, index) => `${index + 1}. ${citation.title}\n${citation.snippet}\n${citation.url}`)
+        .map((citation, index) => {
+          const dateTag = citation.publishedAt ? `[${citation.publishedAt.slice(0, 10)}]` : "[undated]";
+          return `${index + 1}. ${dateTag} ${citation.title}\n${citation.snippet}\n${citation.url}`;
+        })
         .join("\n\n");
 
       const result = await verifyChain.invoke({

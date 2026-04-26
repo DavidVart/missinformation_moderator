@@ -8,6 +8,7 @@ import {
   canonicalizeClaimText,
   claimsAreEquivalent,
   curateCitations,
+  isFragmentClaim,
   looksTruncated,
   shouldAssessWindow,
   shouldIntervene
@@ -212,6 +213,26 @@ describe("reasoning helpers", () => {
     expect(looksTruncated("Joe Biden received 306 electoral votes")).toBe(false);
     // Stable factual statements are complete.
     expect(looksTruncated("The Eiffel Tower is in Paris")).toBe(false);
+  });
+
+  // Tier 2.6: fragment-claim filter. Dogfood produced "1.7%." as a standalone
+  // claim when the LLM picked a bare percentage out of a multi-segment window
+  // — verifier had no subject to fact-check and emitted a nonsensical
+  // correction. Require ≥ 2 alphabetic word tokens.
+  it("flags subject-less number/percentage fragments as not-a-claim", () => {
+    expect(isFragmentClaim("1.7%.")).toBe(true);
+    expect(isFragmentClaim("0.8%")).toBe(true);
+    expect(isFragmentClaim("306")).toBe(true);
+    expect(isFragmentClaim("S&P 500")).toBe(true); // only "S" and "P" — single letters
+    expect(isFragmentClaim(".")).toBe(true);
+  });
+
+  it("keeps real claims with at least subject + verb", () => {
+    expect(isFragmentClaim("S&P went up")).toBe(false);
+    expect(isFragmentClaim("Trump won in 2024")).toBe(false);
+    expect(isFragmentClaim("The S&P 500 went up 1.7%")).toBe(false);
+    expect(isFragmentClaim("The iPhone 17 was released")).toBe(false);
+    expect(isFragmentClaim("The Eiffel Tower is in Paris")).toBe(false);
   });
 
   it("defaults timeSensitive to false on a deserialized claim assessment", () => {
