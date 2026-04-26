@@ -181,6 +181,39 @@ export function isFragmentClaim(text: string): boolean {
   return words.length < 2;
 }
 
+/**
+ * Tier 4 profanity detector: a deterministic regex pre-check that runs on
+ * each transcript segment BEFORE the LLM detection step. When it hits, the
+ * detection consumer synthesizes a ClaimAssessment with claimType="profanity"
+ * and routes it through the same shortcut path as opinions (no Tavily, no
+ * verifier). The user sees a soft "that's intense — can you back it up?"
+ * prompt rather than a red correction.
+ *
+ * Word boundaries (`\b`) prevent false hits on substrings — "Scunthorpe"
+ * doesn't match "cunt", "class" doesn't match "ass". Case-insensitive.
+ * Conservative list — strong vulgar + insults that typically signal
+ * emotional intensity. Mild words (damn, hell) intentionally excluded
+ * to avoid over-flagging.
+ */
+const PROFANITY_PATTERNS: RegExp[] = [
+  /\b(fuck|fucks|fucked|fucking|fucker|fuckers|motherfucker|motherfuckers)\b/i,
+  /\b(shit|shits|shitting|bullshit|shitty)\b/i,
+  /\b(asshole|assholes|dumbass|jackass)\b/i,
+  /\b(bitch|bitches)\b/i,
+  /\b(dick|dickhead|dickheads)\b/i,
+  /\b(bastard|bastards)\b/i
+];
+
+export function detectProfanity(text: string): { found: boolean; word?: string } {
+  for (const pattern of PROFANITY_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match) {
+      return { found: true, word: match[0].toLowerCase() };
+    }
+  }
+  return { found: false };
+}
+
 function overlapCount(left: string[], right: string[]) {
   const rightSet = new Set(right);
   return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0);

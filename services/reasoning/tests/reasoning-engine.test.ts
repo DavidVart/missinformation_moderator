@@ -9,6 +9,7 @@ import {
   canonicalizeClaimText,
   claimsAreEquivalent,
   curateCitations,
+  detectProfanity,
   isFragmentClaim,
   looksTruncated,
   shouldAssessWindow,
@@ -361,5 +362,58 @@ describe("reasoning helpers", () => {
       claimType: "opinion"
     });
     expect(parsed.claimType).toBe("opinion");
+  });
+
+  // Tier 4 (2/3): profanity detector. Deterministic regex pre-check that
+  // runs on each segment before LLM detection. Word boundaries prevent
+  // false hits on substrings like "Scunthorpe" or "class".
+  it("detects strong language hits", () => {
+    expect(detectProfanity("That's fucking insane").found).toBe(true);
+    expect(detectProfanity("What a piece of shit policy").found).toBe(true);
+    expect(detectProfanity("Don't be such an asshole about it").found).toBe(true);
+    expect(detectProfanity("That's bullshit and you know it").found).toBe(true);
+  });
+
+  it("returns the matched word for observability", () => {
+    const hit = detectProfanity("That's a load of bullshit");
+    expect(hit.found).toBe(true);
+    expect(hit.word).toBe("bullshit");
+  });
+
+  it("does not match polite text", () => {
+    expect(detectProfanity("The S&P went up 1.7% yesterday").found).toBe(false);
+    expect(detectProfanity("Trump won the 2024 election decisively").found).toBe(false);
+    expect(detectProfanity("That's an interesting point about the economy").found).toBe(false);
+  });
+
+  it("ignores substring false positives via word boundaries", () => {
+    // "Scunthorpe" contains "cunt" as a substring but should not match.
+    expect(detectProfanity("I went to Scunthorpe last summer").found).toBe(false);
+    // "class" contains "ass" as a substring.
+    expect(detectProfanity("She teaches a great economics class").found).toBe(false);
+    // "shittake" — not a real word but tests the boundary.
+    expect(detectProfanity("Mushroom variety classification").found).toBe(false);
+  });
+
+  it("publishes profanity notifications regardless of speaker role", () => {
+    const baseAssessment = {
+      claimId: "claim_p",
+      sessionId: "session_1",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "That's bullshit",
+      verdict: "profanity" as const,
+      confidence: 0.95,
+      correction: "That's intense — can you back it up with evidence?",
+      sources: [],
+      checkedAt: "2026-04-27T12:00:00.000Z"
+    };
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      speakerRole: "self" as const
+    }, 0.75)).toBe(true);
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      speakerRole: "opponent" as const
+    }, 0.75)).toBe(true);
   });
 });

@@ -29,6 +29,7 @@ import {
   claimIdentityKey,
   claimsAreEquivalent,
   createReasoningEngine,
+  detectProfanity,
   fetchCitations,
   shouldAssessWindow
 } from "./reasoning-engine.js";
@@ -291,6 +292,49 @@ async function bootstrap() {
     `reasoning-${uuidv4()}`,
     (value) => parseStreamPayload(value, transcriptSegmentSchema),
     async (_id, segment) => {
+      // Tier 4 profanity check runs FIRST on the raw segment text so the
+      // soft "back it up?" prompt fires immediately, independent of the
+      // LLM's rolling-window detection. If the same utterance also contains
+      // a verifiable factual claim, the LLM detection below picks that up
+      // separately and both interventions can fire.
+      const profanityHit = detectProfanity(segment.text);
+      if (profanityHit.found) {
+        try {
+          const profanityAssessment = claimAssessmentSchema.parse({
+            claimId: uuidv4(),
+            sessionId: segment.sessionId,
+            userId: segment.userId,
+            mode: segment.mode,
+            transcriptSegmentIds: [segment.segmentId],
+            claimText: segment.text,
+            query: segment.text,
+            isVerifiable: false,
+            confidence: 0.95, // regex hit is deterministic
+            rationale: `Strong language detected: "${profanityHit.word ?? ""}"`,
+            speakerRole: segment.speakerRole ?? "unknown",
+            timeSensitive: false,
+            claimType: "profanity"
+          });
+          await xAddJson(redis, STREAM_NAMES.claimsDetected, profanityAssessment);
+          logger.info({
+            sessionId: segment.sessionId,
+            seq: segment.seq,
+            word: profanityHit.word,
+            speakerRole: segment.speakerRole,
+            detectionLagMs: Math.max(0, Date.now() - Date.parse(segment.endedAt))
+          }, "Profanity detected — published synthetic claim");
+        } catch (error) {
+          logger.error(
+            { err: error, segmentText: segment.text },
+            "Failed to publish profanity assessment"
+          );
+          Sentry.captureException(error, {
+            tags: { phase: "profanity", sessionId: segment.sessionId },
+            extra: { segmentText: segment.text, word: profanityHit.word }
+          });
+        }
+      }
+
       const key = windowKey(segment.sessionId);
       // Pipeline: push + trim-to-N + read in as few round-trips as possible.
       // Tier 1: window expanded from 3 to ROLLING_WINDOW_SIZE (default 5) so
@@ -406,35 +450,42 @@ async function bootstrap() {
     async (_id, assessment) => {
       const verificationStartedAtMs = Date.now();
 
-      // Tier 4: opinions short-circuit — no Tavily call, no LLM verifier.
-      // Build a synthetic verification result that flows through the same
-      // notification path so dedup / rate-limit / per-session "already
-      // shown" all still apply, then the mobile renders verdict="opinion"
-      // as a soft chip rather than a red correction.
-      if (assessment.claimType === "opinion") {
-        const opinionVerification = claimVerificationResultSchema.parse({
+      // Tier 4: opinions and profanity short-circuit — no Tavily call, no
+      // LLM verifier. Build a synthetic verification result that flows
+      // through the same notification path so dedup / rate-limit /
+      // per-session "already shown" all still apply, then the mobile renders
+      // verdict="opinion" / verdict="profanity" as soft chips rather than a
+      // red correction.
+      if (assessment.claimType === "opinion" || assessment.claimType === "profanity") {
+        const isOpinion = assessment.claimType === "opinion";
+        const verdict = isOpinion ? "opinion" : "profanity";
+        const correction = isOpinion
+          ? "That sounded like an opinion — backing it with evidence would make it more persuasive."
+          : "That's intense — can you back it up with evidence?";
+
+        const softVerification = claimVerificationResultSchema.parse({
           claimId: assessment.claimId,
           sessionId: assessment.sessionId,
           userId: assessment.userId,
           mode: assessment.mode,
           transcriptSegmentIds: assessment.transcriptSegmentIds,
           claimText: assessment.claimText,
-          verdict: "opinion",
+          verdict,
           confidence: assessment.confidence,
-          correction: "That sounded like an opinion — backing it with evidence would make it more persuasive.",
+          correction,
           sources: [],
           checkedAt: new Date().toISOString(),
           speakerRole: assessment.speakerRole ?? "unknown"
         });
 
-        await xAddJson(redis, STREAM_NAMES.verdictsCompleted, opinionVerification);
+        await xAddJson(redis, STREAM_NAMES.verdictsCompleted, softVerification);
         logger.info({
           sessionId: assessment.sessionId,
           claimText: assessment.claimText,
-          verdict: "opinion",
+          verdict,
           confidence: assessment.confidence,
           verificationDurationMs: Date.now() - verificationStartedAtMs,
-          outcome: "opinion-flagged"
+          outcome: isOpinion ? "opinion-flagged" : "profanity-flagged"
         }, "Completed claim verification");
         return;
       }

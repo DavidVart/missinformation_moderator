@@ -9,16 +9,19 @@ export const sessionModeSchema = z.enum([
 
 export type SessionMode = z.infer<typeof sessionModeSchema>;
 
-export const verdictSchema = z.enum(["true", "false", "misleading", "unverified", "opinion"]);
+export const verdictSchema = z.enum(["true", "false", "misleading", "unverified", "opinion", "profanity"]);
 export const leaderboardVisibilitySchema = z.enum(["private", "public"]);
 
 /**
- * Tier 4: distinguish factual assertions from opinions at detection time.
- * Opinions skip the Tavily/verifier path and surface as a soft "this sounds
- * like an opinion" flag in the UI rather than a red correction. Avoids the
- * false-positive feeling when a user is sharing a personal view.
+ * Tier 4: distinguish factual assertions from opinions and from intense /
+ * profane language at detection time. Opinions and profanity both skip the
+ * Tavily/verifier path and surface as soft prompts in the UI rather than red
+ * corrections — opinions get a "back it with evidence" nudge, profanity gets
+ * a "that's intense, can you back it up?" nudge. Profanity is detected by
+ * a regex on the raw segment text (not by the LLM) so the LLM only ever
+ * emits "fact" or "opinion".
  */
-export const claimTypeSchema = z.enum(["fact", "opinion"]);
+export const claimTypeSchema = z.enum(["fact", "opinion", "profanity"]);
 export type ClaimType = z.infer<typeof claimTypeSchema>;
 
 /** V2 Debate Mode: which speaker produced a given audio chunk / segment. */

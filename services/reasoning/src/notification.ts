@@ -23,6 +23,14 @@ export function shouldPublishNotification(result: ClaimVerificationResult, baseT
       : opinionFloor;
     return result.confidence >= threshold;
   }
+  if (result.verdict === "profanity") {
+    // Profanity is a deterministic regex hit (assessment.confidence = 0.95),
+    // so the gate only exists to support a future calibration knob. Always
+    // passes today; symmetric for self/opponent (we don't want to suppress
+    // the user's own intense statements — that's the whole point of the
+    // "back it up" prompt).
+    return result.confidence >= 0.5;
+  }
   if (!["false", "misleading"].includes(result.verdict)) {
     return false;
   }

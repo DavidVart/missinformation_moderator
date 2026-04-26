@@ -168,9 +168,12 @@
                       @for (correction of bubble.corrections; track $index) {
                         <div
                           class="transcript-bubble__correction"
-                          [class.is-opinion]="correction.verdict === 'opinion'">
+                          [class.is-opinion]="correction.verdict === 'opinion'"
+                          [class.is-profanity]="correction.verdict === 'profanity'">
                           @if (correction.verdict === 'opinion') {
                             <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+                          } @else if (correction.verdict === 'profanity') {
+                            <ion-icon name="flame-outline"></ion-icon>
                           } @else {
                             <ion-icon name="warning-outline"></ion-icon>
                           }
@@ -196,7 +199,8 @@
                   class="intervention-strip"
                   [class.is-self]="latestIntervention()?.attributedTo === 'self'"
                   [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'"
-                  [class.is-opinion]="latestIntervention()?.verdict === 'opinion'">
+                  [class.is-opinion]="latestIntervention()?.verdict === 'opinion'"
+                  [class.is-profanity]="latestIntervention()?.verdict === 'profanity'">
                   <div>
                     <p class="intervention-kicker">
                       @if (latestIntervention()?.attributedTo === 'self') {
@@ -206,13 +210,15 @@
                       }
                       @if (latestIntervention()?.verdict === 'opinion') {
                         Opinion
+                      } @else if (latestIntervention()?.verdict === 'profanity') {
+                        Strong language
                       } @else {
                         Correction
                       }
                     </p>
                     <p class="intervention-copy">{{ latestIntervention().correction }}</p>
                     <div class="intervention-meta">
-                      @if (latestIntervention()?.verdict !== 'opinion') {
+                      @if (latestIntervention()?.verdict !== 'opinion' && latestIntervention()?.verdict !== 'profanity') {
                         <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
                         @if (latestSource(); as source) {
                           <button class="source-pill" type="button" (click)="openLatestSource()">
@@ -222,7 +228,7 @@
                       }
                     </div>
                   </div>
-                  @if (latestIntervention()?.verdict !== 'opinion') {
+                  @if (latestIntervention()?.verdict !== 'opinion' && latestIntervention()?.verdict !== 'profanity') {
                     <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
                   }
                 </section>
@@ -1103,13 +1109,17 @@
           class="correction-toast"
           [class.is-self]="intervention.attributedTo === 'self'"
           [class.is-opponent]="intervention.attributedTo === 'opponent'"
-          [class.is-opinion]="intervention.verdict === 'opinion'">
+          [class.is-opinion]="intervention.verdict === 'opinion'"
+          [class.is-profanity]="intervention.verdict === 'profanity'">
           <div class="correction-toast__progress" aria-hidden="true"></div>
           <div class="correction-toast__header">
             <div class="correction-toast__badge">
               @if (intervention.verdict === 'opinion') {
                 <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
                 <span>Sounded like an opinion</span>
+              } @else if (intervention.verdict === 'profanity') {
+                <ion-icon name="flame-outline"></ion-icon>
+                <span>Strong language</span>
               } @else {
                 <ion-icon name="warning-outline"></ion-icon>
                 <span>
@@ -1129,7 +1139,7 @@
           </div>
           <p class="correction-toast__claim">"{{ intervention.claimText }}"</p>
           <p class="correction-toast__correction">{{ intervention.correction }}</p>
-          @if (intervention.verdict !== 'opinion') {
+          @if (intervention.verdict !== 'opinion' && intervention.verdict !== 'profanity') {
             <div class="correction-toast__actions">
               <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
               @if (intervention.sources[0]) {
