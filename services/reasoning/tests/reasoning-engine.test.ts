@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { claimAssessmentSchema } from "@project-veritas/contracts";
 
+import { shouldPublishNotification } from "../src/notification.js";
 import {
   buildRollingWindow,
   buildTavilyRequestBody,
@@ -268,5 +269,97 @@ describe("reasoning helpers", () => {
     });
 
     expect(parsed.timeSensitive).toBe(true);
+  });
+
+  // Tier 4: opinion verdicts use a separate gate from fact verdicts. They
+  // don't go through Tavily / the verifier, so the "confidence" we see is
+  // detection confidence — the LLM's certainty that the utterance was
+  // subjective. We use a 0.6 floor for opponents and a 0.7 floor for self
+  // (existing asymmetric +0.10 nudge so we don't over-flag the user's own
+  // opinions).
+  it("publishes opinion notifications when detection confidence is high enough", () => {
+    expect(shouldPublishNotification({
+      claimId: "claim_1",
+      sessionId: "session_1",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "Trump is the best president ever.",
+      verdict: "opinion",
+      confidence: 0.85,
+      correction: "That sounded like an opinion — backing it with evidence would make it more persuasive.",
+      sources: [],
+      checkedAt: "2026-04-27T12:00:00.000Z",
+      speakerRole: "opponent"
+    }, 0.75)).toBe(true);
+  });
+
+  it("drops low-confidence opinion detections", () => {
+    expect(shouldPublishNotification({
+      claimId: "claim_1",
+      sessionId: "session_1",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "It might be a good movie.",
+      verdict: "opinion",
+      confidence: 0.4,
+      correction: "That sounded like an opinion.",
+      sources: [],
+      checkedAt: "2026-04-27T12:00:00.000Z",
+      speakerRole: "opponent"
+    }, 0.75)).toBe(false);
+  });
+
+  it("applies asymmetric self bump to opinions too", () => {
+    const baseAssessment = {
+      claimId: "claim_1",
+      sessionId: "session_1",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "AI is dangerous.",
+      verdict: "opinion" as const,
+      correction: "That sounded like an opinion.",
+      sources: [],
+      checkedAt: "2026-04-27T12:00:00.000Z"
+    };
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      confidence: 0.65,
+      speakerRole: "self" as const
+    }, 0.75)).toBe(false);
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      confidence: 0.65,
+      speakerRole: "opponent" as const
+    }, 0.75)).toBe(true);
+  });
+
+  it("defaults claimType to 'fact' on a deserialized assessment", () => {
+    const parsed = claimAssessmentSchema.parse({
+      claimId: "claim_1",
+      sessionId: "session_1",
+      mode: "debate_live",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "The Eiffel Tower is in Paris.",
+      query: "Eiffel Tower location",
+      isVerifiable: true,
+      confidence: 0.9,
+      rationale: "Stable fact.",
+      speakerRole: "self"
+    });
+    expect(parsed.claimType).toBe("fact");
+  });
+
+  it("preserves claimType='opinion' through schema parse", () => {
+    const parsed = claimAssessmentSchema.parse({
+      claimId: "claim_3",
+      sessionId: "session_1",
+      mode: "debate_live",
+      transcriptSegmentIds: ["segment_1"],
+      claimText: "Trump is the best president ever.",
+      query: "Trump best president",
+      isVerifiable: false,
+      confidence: 0.85,
+      rationale: "Forceful value judgment.",
+      speakerRole: "opponent",
+      claimType: "opinion"
+    });
+    expect(parsed.claimType).toBe("opinion");
   });
 });

@@ -8,8 +8,21 @@ import { v4 as uuidv4 } from "uuid";
  * higher confidence to fire a correction — the user is much more annoyed if
  * we wrongly flag their opinions than if we miss some of their own errors.
  * Opponent claims use the baseline threshold (that's the whole point of the app).
+ *
+ * Tier 4: opinion verdicts go through with a fixed lower floor (0.6 detection
+ * confidence). They're soft flags, not corrections — no Tavily/verifier
+ * confidence to gate on, just the LLM's certainty that the utterance was
+ * subjective. The asymmetric self-bump still applies so opponent opinions
+ * surface a touch more readily than self ones.
  */
 export function shouldPublishNotification(result: ClaimVerificationResult, baseThreshold: number) {
+  if (result.verdict === "opinion") {
+    const opinionFloor = 0.6;
+    const threshold = result.speakerRole === "self"
+      ? Math.min(0.85, opinionFloor + 0.10)
+      : opinionFloor;
+    return result.confidence >= threshold;
+  }
   if (!["false", "misleading"].includes(result.verdict)) {
     return false;
   }

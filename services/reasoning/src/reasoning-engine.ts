@@ -19,7 +19,12 @@ const detectedClaimSchema = z.object({
   // (election outcomes, current prices, sports scores, latest poll, etc.).
   // The verifier consumer biases Tavily search to the last 30 days for
   // these so we don't fact-check a 2024 claim against 2019 cached pages.
-  timeSensitive: z.boolean().default(false)
+  timeSensitive: z.boolean().default(false),
+  // Tier 4: distinguish factual assertions from opinions. Opinions skip
+  // Tavily/verifier and surface as a soft "this sounds like an opinion"
+  // flag instead of a red correction — avoids the false-positive feel
+  // when the user is sharing a personal view.
+  claimType: z.enum(["fact", "opinion"]).default("fact")
 });
 
 /**
@@ -434,10 +439,17 @@ export function createReasoningEngine(config: {
       `claim for each year/entity — they are independent facts and must each be verified separately.\n` +
       `If the same claim is repeated verbatim multiple times in the window, include it only once.\n` +
       `Ignore filler words and partial fragments.\n` +
-      `Do NOT flag clear opinions ("I think...", "I believe...", "In my view..."), rhetorical questions,\n` +
-      `or hypotheticals. Focus on verifiable assertions of fact — names, dates, numbers, events, causal claims.\n` +
-      `If the claim is attributed to [SELF], apply stricter scrutiny — only flag objectively verifiable statements,\n` +
-      `never personal opinions or first-person anecdotes.\n` +
+      `Focus on verifiable assertions of fact — names, dates, numbers, events, causal claims.\n` +
+      `Set claimType="fact" for objectively verifiable assertions ("Trump won in 2024", "Iran is in West Asia",\n` +
+      `"GDP grew 2.3% in 2024"). Set claimType="opinion" for value judgments, predictions, preferences, and\n` +
+      `subjective interpretations ("Trump is the best president", "the economy will tank", "AI is dangerous",\n` +
+      `"that movie was great"). Opinions are still WORTH FLAGGING (the user might want to know they made a\n` +
+      `subjective claim), so include them in the array — but mark them claimType="opinion" so the system\n` +
+      `surfaces a soft prompt instead of a fact-check correction.\n` +
+      `Skip pure rhetorical questions and hypotheticals entirely (don't return them at all).\n` +
+      `If the claim is attributed to [SELF], apply stricter scrutiny on facts — only flag objectively verifiable\n` +
+      `factual statements; for SELF, opinions and first-person anecdotes can be skipped entirely or marked as\n` +
+      `claimType="opinion" if they're forceful generalizations.\n` +
       `CRITICAL: populate the speakerRole field on each claim with the tag of the line the claim was drawn from —\n` +
       `"self" if the claim appears on a [SELF] line, "opponent" if it appears on an [OPPONENT] line.\n` +
       `If a claim spans both speakers or is ambiguous, set its speakerRole to "unknown".\n` +
@@ -445,6 +457,7 @@ export function createReasoningEngine(config: {
       `live stock or crypto prices, ongoing sports scores, the latest poll, breaking news from the past few weeks,\n` +
       `or anything phrased with "this year", "last week", "right now", "currently". For stable historical or\n` +
       `geographical facts (the Eiffel Tower's location, who won WWII, the speed of light), leave it false.\n` +
+      `(timeSensitive only matters for facts; opinions are unaffected.)\n` +
       `If the transcript contains no verifiable factual claims at all, return an empty "claims" array.\n` +
       `Respond only using the requested structured schema.\n\nTranscript:\n{transcript}`
   );
@@ -502,7 +515,10 @@ export function createReasoningEngine(config: {
 
       const candidates = (result.claims ?? []).filter(
         (claim) =>
-          claim.isVerifiable &&
+          // Opinions surface as soft flags so they bypass the "isVerifiable"
+          // gate that's meant for facts. The verification consumer
+          // short-circuits opinions before they reach Tavily / the verifier.
+          (claim.isVerifiable || claim.claimType === "opinion") &&
           claim.claimText.trim().length > 0 &&
           !looksTruncated(claim.claimText) &&
           !isFragmentClaim(claim.claimText)
@@ -545,7 +561,8 @@ export function createReasoningEngine(config: {
             confidence: claim.confidence,
             rationale: claim.rationale,
             speakerRole,
-            timeSensitive: claim.timeSensitive ?? false
+            timeSensitive: claim.timeSensitive ?? false,
+            claimType: claim.claimType ?? "fact"
           })
         );
       }
@@ -696,7 +713,8 @@ function createMockReasoningEngine(): ReasoningEngine {
           confidence: 0.77,
           rationale: "Heuristic mock detector found a declarative factual statement.",
           speakerRole: transcriptWindow.at(-1)?.speakerRole ?? "unknown",
-          timeSensitive: false
+          timeSensitive: false,
+          claimType: "fact"
         }
       ];
     },

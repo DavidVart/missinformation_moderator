@@ -186,7 +186,11 @@
               }
 
               @if (latestIntervention() && !showCorrectionOverlay()) {
-                <section class="intervention-strip" [class.is-self]="latestIntervention()?.attributedTo === 'self'" [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'">
+                <section
+                  class="intervention-strip"
+                  [class.is-self]="latestIntervention()?.attributedTo === 'self'"
+                  [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'"
+                  [class.is-opinion]="latestIntervention()?.verdict === 'opinion'">
                   <div>
                     <p class="intervention-kicker">
                       @if (latestIntervention()?.attributedTo === 'self') {
@@ -194,19 +198,27 @@
                       } @else if (latestIntervention()?.attributedTo === 'opponent') {
                         Opponent said —
                       }
-                      Correction
+                      @if (latestIntervention()?.verdict === 'opinion') {
+                        Opinion
+                      } @else {
+                        Correction
+                      }
                     </p>
                     <p class="intervention-copy">{{ latestIntervention().correction }}</p>
                     <div class="intervention-meta">
-                      <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
-                      @if (latestSource(); as source) {
-                        <button class="source-pill" type="button" (click)="openLatestSource()">
-                          {{ sourceHost(source.url) }}
-                        </button>
+                      @if (latestIntervention()?.verdict !== 'opinion') {
+                        <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
+                        @if (latestSource(); as source) {
+                          <button class="source-pill" type="button" (click)="openLatestSource()">
+                            {{ sourceHost(source.url) }}
+                          </button>
+                        }
                       }
                     </div>
                   </div>
-                  <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
+                  @if (latestIntervention()?.verdict !== 'opinion') {
+                    <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
+                  }
                 </section>
               }
 
@@ -1081,20 +1093,29 @@
 
       <!-- ═══════════════════ CORRECTION TOAST ═══════════════════ -->
       @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
-        <div class="correction-toast" [class.is-self]="intervention.attributedTo === 'self'" [class.is-opponent]="intervention.attributedTo === 'opponent'">
+        <div
+          class="correction-toast"
+          [class.is-self]="intervention.attributedTo === 'self'"
+          [class.is-opponent]="intervention.attributedTo === 'opponent'"
+          [class.is-opinion]="intervention.verdict === 'opinion'">
           <div class="correction-toast__progress" aria-hidden="true"></div>
           <div class="correction-toast__header">
             <div class="correction-toast__badge">
-              <ion-icon name="warning-outline"></ion-icon>
-              <span>
-                @if (intervention.attributedTo === 'self') {
-                  You were corrected
-                } @else if (intervention.attributedTo === 'opponent') {
-                  Opponent corrected
-                } @else {
-                  Correction
-                }
-              </span>
+              @if (intervention.verdict === 'opinion') {
+                <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+                <span>Sounded like an opinion</span>
+              } @else {
+                <ion-icon name="warning-outline"></ion-icon>
+                <span>
+                  @if (intervention.attributedTo === 'self') {
+                    You were corrected
+                  } @else if (intervention.attributedTo === 'opponent') {
+                    Opponent corrected
+                  } @else {
+                    Correction
+                  }
+                </span>
+              }
             </div>
             <button class="correction-toast__dismiss" type="button" (click)="closeCorrectionOverlay()">
               <ion-icon name="close-outline"></ion-icon>
@@ -1102,18 +1123,20 @@
           </div>
           <p class="correction-toast__claim">"{{ intervention.claimText }}"</p>
           <p class="correction-toast__correction">{{ intervention.correction }}</p>
-          <div class="correction-toast__actions">
-            <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
-            @if (intervention.sources[0]) {
-              <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
-                {{ sourceHost(intervention.sources[0].url) }}
+          @if (intervention.verdict !== 'opinion') {
+            <div class="correction-toast__actions">
+              <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
+              @if (intervention.sources[0]) {
+                <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
+                  {{ sourceHost(intervention.sources[0].url) }}
+                </button>
+              }
+              <button class="correction-toast__speak" type="button" (click)="speakLatestIntervention()">
+                <ion-icon name="volume-high-outline"></ion-icon>
+                <span>Speak</span>
               </button>
-            }
-            <button class="correction-toast__speak" type="button" (click)="speakLatestIntervention()">
-              <ion-icon name="volume-high-outline"></ion-icon>
-              <span>Speak</span>
-            </button>
-          </div>
+            </div>
+          }
         </div>
       }
     </div>

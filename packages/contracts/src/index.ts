@@ -9,8 +9,17 @@ export const sessionModeSchema = z.enum([
 
 export type SessionMode = z.infer<typeof sessionModeSchema>;
 
-export const verdictSchema = z.enum(["true", "false", "misleading", "unverified"]);
+export const verdictSchema = z.enum(["true", "false", "misleading", "unverified", "opinion"]);
 export const leaderboardVisibilitySchema = z.enum(["private", "public"]);
+
+/**
+ * Tier 4: distinguish factual assertions from opinions at detection time.
+ * Opinions skip the Tavily/verifier path and surface as a soft "this sounds
+ * like an opinion" flag in the UI rather than a red correction. Avoids the
+ * false-positive feeling when a user is sharing a personal view.
+ */
+export const claimTypeSchema = z.enum(["fact", "opinion"]);
+export type ClaimType = z.infer<typeof claimTypeSchema>;
 
 /** V2 Debate Mode: which speaker produced a given audio chunk / segment. */
 export const speakerRoleSchema = z.enum(["self", "opponent", "unknown"]);
@@ -169,7 +178,8 @@ export const claimAssessmentSchema = z.object({
   confidence: z.number().min(0).max(1),
   rationale: z.string(),
   speakerRole: speakerRoleSchema.default("unknown"),
-  timeSensitive: z.boolean().default(false)
+  timeSensitive: z.boolean().default(false),
+  claimType: claimTypeSchema.default("fact")
 });
 
 export type ClaimAssessment = z.infer<typeof claimAssessmentSchema>;

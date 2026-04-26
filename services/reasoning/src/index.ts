@@ -406,6 +406,39 @@ async function bootstrap() {
     async (_id, assessment) => {
       const verificationStartedAtMs = Date.now();
 
+      // Tier 4: opinions short-circuit — no Tavily call, no LLM verifier.
+      // Build a synthetic verification result that flows through the same
+      // notification path so dedup / rate-limit / per-session "already
+      // shown" all still apply, then the mobile renders verdict="opinion"
+      // as a soft chip rather than a red correction.
+      if (assessment.claimType === "opinion") {
+        const opinionVerification = claimVerificationResultSchema.parse({
+          claimId: assessment.claimId,
+          sessionId: assessment.sessionId,
+          userId: assessment.userId,
+          mode: assessment.mode,
+          transcriptSegmentIds: assessment.transcriptSegmentIds,
+          claimText: assessment.claimText,
+          verdict: "opinion",
+          confidence: assessment.confidence,
+          correction: "That sounded like an opinion — backing it with evidence would make it more persuasive.",
+          sources: [],
+          checkedAt: new Date().toISOString(),
+          speakerRole: assessment.speakerRole ?? "unknown"
+        });
+
+        await xAddJson(redis, STREAM_NAMES.verdictsCompleted, opinionVerification);
+        logger.info({
+          sessionId: assessment.sessionId,
+          claimText: assessment.claimText,
+          verdict: "opinion",
+          confidence: assessment.confidence,
+          verificationDurationMs: Date.now() - verificationStartedAtMs,
+          outcome: "opinion-flagged"
+        }, "Completed claim verification");
+        return;
+      }
+
       let citations: SourceCitation[];
       try {
         citations = await fetchCitations(assessment.query, env.TAVILY_API_KEY, {

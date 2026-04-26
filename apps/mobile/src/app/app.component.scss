@@ -3107,6 +3107,41 @@
   /* attribution is expressed in the "ALEX SAID" / "YOU SAID" kicker text */
 }
 
+/* ─── Opinion variant: soft amber treatment instead of red correction ─── */
+/* Applied to both the inline strip and the floating toast. The visual
+   weight is intentionally lower — opinions are a gentle nudge, not a
+   "you got it wrong" alarm. */
+
+.intervention-strip.is-opinion {
+  border-left-color: var(--rt-secondary, #b8862a);
+  background: rgba(248, 232, 198, 0.45);
+}
+
+.intervention-strip.is-opinion .intervention-kicker {
+  color: var(--rt-secondary, #b8862a);
+}
+
+.correction-toast.is-opinion {
+  background: linear-gradient(180deg, rgba(252, 244, 220, 0.96) 0%, rgba(248, 232, 198, 0.92) 100%);
+  border: 1px solid rgba(184, 134, 42, 0.25);
+}
+
+.correction-toast.is-opinion::before {
+  background: var(--rt-secondary, #b8862a);
+}
+
+.correction-toast.is-opinion .correction-toast__badge {
+  color: var(--rt-secondary, #b8862a);
+}
+
+.correction-toast.is-opinion .correction-toast__badge ion-icon {
+  color: var(--rt-secondary, #b8862a);
+}
+
+.correction-toast.is-opinion .correction-toast__progress {
+  background: var(--rt-secondary, #b8862a);
+}
+
 /* Post-session attribution modal */
 .attribution-panel {
   display: flex;

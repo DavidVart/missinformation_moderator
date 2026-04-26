@@ -36,6 +36,7 @@ import {
   volumeHighOutline,
   warningOutline,
   chatbubblesOutline,
+  chatbubbleEllipsesOutline,
   eyeOffOutline,
   statsChartOutline,
   earOutline,
@@ -797,7 +798,8 @@ export class AppComponent implements OnDestroy {
       trendingUpOutline,
       trophyOutline,
       volumeHighOutline,
-      warningOutline
+      warningOutline,
+      chatbubbleEllipsesOutline
     });
 
     // Initialize SDKs
