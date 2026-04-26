@@ -513,6 +513,50 @@
                     </div>
                   </section>
                 }
+
+                <!-- Tier 4 (3/3): foldable full transcript. Closed by default
+                     because the corrections above are the focus; opens for
+                     users who want to verify or relive the conversation. -->
+                @if (speakerTranscript().length > 0) {
+                  <section class="transcript-fold" [class.is-open]="transcriptExpanded()">
+                    <button
+                      class="transcript-fold__toggle"
+                      type="button"
+                      [attr.aria-expanded]="transcriptExpanded()"
+                      (click)="toggleTranscriptExpanded()">
+                      <span class="transcript-fold__label">
+                        Transcript
+                        <span class="transcript-fold__count">·  {{ speakerTranscript().length }} {{ speakerTranscript().length === 1 ? 'turn' : 'turns' }}</span>
+                      </span>
+                      <ion-icon [name]="transcriptExpanded() ? 'chevron-up-outline' : 'chevron-down-outline'"></ion-icon>
+                    </button>
+                    @if (transcriptExpanded()) {
+                      <div class="transcript-fold__body">
+                        @for (bubble of speakerTranscript(); track $index) {
+                          <div class="transcript-fold__bubble" [class.is-self]="bubble.speaker === 'self'" [class.is-opponent]="bubble.speaker === 'opponent'">
+                            <span class="transcript-fold__speaker">{{ bubble.label }}</span>
+                            <p class="transcript-fold__text">{{ bubble.text }}</p>
+                            @for (correction of bubble.corrections; track $index) {
+                              <div
+                                class="transcript-fold__correction"
+                                [class.is-opinion]="correction.verdict === 'opinion'"
+                                [class.is-profanity]="correction.verdict === 'profanity'">
+                                @if (correction.verdict === 'opinion') {
+                                  <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+                                } @else if (correction.verdict === 'profanity') {
+                                  <ion-icon name="flame-outline"></ion-icon>
+                                } @else {
+                                  <ion-icon name="warning-outline"></ion-icon>
+                                }
+                                <span>{{ correction.text }}</span>
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
+                    }
+                  </section>
+                }
               }
             }
 

@@ -4042,6 +4042,154 @@
   color: var(--rt-correction);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   Tier 4 (3/3) — Foldable transcript on Session Insights
+   Closed by default; opens to show the full conversation grouped
+   by speaker with inline correction chips that mirror the live view.
+   ═══════════════════════════════════════════════════════════════ */
+
+.transcript-fold {
+  margin-top: 1.25rem;
+  border-radius: 1.35rem;
+  background: var(--rt-bg-elev);
+  border: 1px solid var(--rt-border);
+  overflow: hidden;
+}
+
+.transcript-fold__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.95rem 1.1rem;
+  background: transparent;
+  border: 0;
+  font-family: var(--rt-font-body);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--rt-ink);
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.transcript-fold__toggle:hover {
+  background: rgba(28, 25, 20, 0.03);
+}
+
+.transcript-fold__toggle:active {
+  transform: scale(0.997);
+}
+
+.transcript-fold__toggle ion-icon {
+  font-size: 1.1rem;
+  color: var(--rt-ink-muted);
+  transition: transform 200ms ease;
+}
+
+.transcript-fold__label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.transcript-fold__count {
+  font-family: var(--rt-font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--rt-ink-muted);
+}
+
+.transcript-fold__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.25rem 1.1rem 1.1rem;
+  border-top: 1px solid var(--rt-border);
+  animation: foldOpen 220ms ease both;
+}
+
+@keyframes foldOpen {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.transcript-fold__bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.95rem;
+  background: var(--rt-bg);
+  border: 1px solid var(--rt-border);
+}
+
+.transcript-fold__bubble.is-self {
+  background: rgba(28, 25, 20, 0.04);
+  border-color: rgba(28, 25, 20, 0.12);
+}
+
+.transcript-fold__bubble.is-opponent {
+  background: rgba(184, 86, 42, 0.05);
+  border-color: rgba(184, 86, 42, 0.12);
+}
+
+.transcript-fold__speaker {
+  font-family: var(--rt-font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rt-ink-muted);
+}
+
+.transcript-fold__text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--rt-ink);
+}
+
+/* Reuse the same chip styles + verdict variants as the live transcript. */
+.transcript-fold__correction {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--rt-radius-md);
+  background: var(--rt-correction-soft);
+  color: var(--rt-correction);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.transcript-fold__correction ion-icon {
+  font-size: 0.95rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.transcript-fold__correction.is-opinion {
+  background: rgba(248, 232, 198, 0.55);
+  color: var(--rt-secondary, #b8862a);
+}
+
+.transcript-fold__correction.is-opinion ion-icon {
+  color: var(--rt-secondary, #b8862a);
+}
+
+.transcript-fold__correction.is-profanity {
+  background: rgba(245, 200, 178, 0.55);
+  color: #c25a3a;
+}
+
+.transcript-fold__correction.is-profanity ion-icon {
+  color: #c25a3a;
+}
+
 /* History cards — clickable now. */
 .history-card {
   position: relative;

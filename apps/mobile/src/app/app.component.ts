@@ -38,6 +38,8 @@ import {
   chatbubblesOutline,
   chatbubbleEllipsesOutline,
   flameOutline,
+  chevronDownOutline,
+  chevronUpOutline,
   eyeOffOutline,
   statsChartOutline,
   earOutline,
@@ -224,6 +226,15 @@ export class AppComponent implements OnDestroy {
 
   // ───────────────── Insights sub-tabs ─────────────────
   protected readonly insightsSubTab = signal<InsightsSubTab>("topics");
+
+  // Tier 4 (3/3): foldable transcript section in the Session sub-tab.
+  // Defaults closed because the corrections are the focus; users open it
+  // when they want to verify or relive the conversation.
+  protected readonly transcriptExpanded = signal(false);
+
+  protected toggleTranscriptExpanded() {
+    this.transcriptExpanded.update((v) => !v);
+  }
 
   // ───────────────── Monthly reflections ─────────────────
   protected readonly currentReflectionMonth = signal(this.getCurrentMonth());
@@ -804,7 +815,9 @@ export class AppComponent implements OnDestroy {
       volumeHighOutline,
       warningOutline,
       chatbubbleEllipsesOutline,
-      flameOutline
+      flameOutline,
+      chevronDownOutline,
+      chevronUpOutline
     });
 
     // Initialize SDKs
