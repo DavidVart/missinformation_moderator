@@ -3394,6 +3394,18 @@
   margin-top: 0.1rem;
 }
 
+/* Tier 4: opinion variant for inline-near-bubble correction chips —
+   matches the soft amber treatment used by the floating toast and
+   intervention-strip so opinions look the same wherever they appear. */
+.transcript-bubble__correction.is-opinion {
+  background: rgba(248, 232, 198, 0.55);
+  color: var(--rt-secondary, #b8862a);
+}
+
+.transcript-bubble__correction.is-opinion ion-icon {
+  color: var(--rt-secondary, #b8862a);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    V2 — Per-speaker breakdown card in Insights
    ═══════════════════════════════════════════════════════════════ */

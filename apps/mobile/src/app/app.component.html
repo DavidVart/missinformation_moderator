@@ -166,9 +166,15 @@
                         }
                       </p>
                       @for (correction of bubble.corrections; track $index) {
-                        <div class="transcript-bubble__correction">
-                          <ion-icon name="warning-outline"></ion-icon>
-                          <span>{{ correction }}</span>
+                        <div
+                          class="transcript-bubble__correction"
+                          [class.is-opinion]="correction.verdict === 'opinion'">
+                          @if (correction.verdict === 'opinion') {
+                            <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+                          } @else {
+                            <ion-icon name="warning-outline"></ion-icon>
+                          }
+                          <span>{{ correction.text }}</span>
                         </div>
                       }
                     </div>

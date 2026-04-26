@@ -324,17 +324,20 @@ export class AppComponent implements OnDestroy {
         label: string;
         text: string;
         startedAt: string;
-        corrections: string[];
+        corrections: { text: string; verdict: string }[];
       }>;
     }
 
-    // Build lookup: correction timestamps → correction + attributedTo + claim word set.
-    // The claim word set is used as a lexical tie-breaker when multiple bubbles
-    // land within the time window of a single correction.
+    // Build lookup: correction timestamps → correction + attributedTo + verdict
+    // + claim word set. The claim word set is used as a lexical tie-breaker when
+    // multiple bubbles land within the time window of a single correction.
+    // Verdict carried so the template can render opinions with the soft amber
+    // chip instead of the red "you got it wrong" warning.
     const correctionEntries = corrections
       .map((c) => ({
         time: Date.parse(c.issuedAt),
         text: c.correction,
+        verdict: c.verdict,
         attributedTo: c.attributedTo ?? "unknown",
         claimWords: new Set(
           (c.claimText ?? "")
@@ -352,7 +355,7 @@ export class AppComponent implements OnDestroy {
       text: string;
       startedAt: string;
       endedAt: string;
-      corrections: string[];
+      corrections: { text: string; verdict: string }[];
     }> = [];
 
     for (const segment of segments) {
@@ -417,7 +420,7 @@ export class AppComponent implements OnDestroy {
         }
       }
       if (bestMatch) {
-        bestMatch.corrections.push(entry.text);
+        bestMatch.corrections.push({ text: entry.text, verdict: entry.verdict });
       }
     }
 
