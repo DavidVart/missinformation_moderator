@@ -37,18 +37,12 @@ export type SpeakerRole = z.infer<typeof speakerRoleSchema>;
 export const sensitivityLevelSchema = z.enum(["strict", "balanced", "lenient"]);
 export type SensitivityLevel = z.infer<typeof sensitivityLevelSchema>;
 
-export const topicSlugSchema = z.enum([
-  "politics",
-  "economics",
-  "health",
-  "science",
-  "technology",
-  "education",
-  "law",
-  "culture",
-  "sports",
-  "general"
-]);
+/**
+ * Free-form topic label since Tier 3. Legacy enum values (politics, general,
+ * etc.) still parse fine — z.string() accepts everything z.enum accepted.
+ * Populated by an LLM extraction call at the verifier consumer level.
+ */
+export const topicSlugSchema = z.string().min(1).max(80);
 
 export type TopicSlug = z.infer<typeof topicSlugSchema>;
 
@@ -199,7 +193,8 @@ export const claimVerificationResultSchema = z.object({
   correction: z.string(),
   sources: z.array(sourceCitationSchema),
   checkedAt: z.string(),
-  speakerRole: speakerRoleSchema.default("unknown")
+  speakerRole: speakerRoleSchema.default("unknown"),
+  topic: z.string().min(1).max(80).optional()
 });
 
 export type ClaimVerificationResult = z.infer<typeof claimVerificationResultSchema>;
@@ -217,7 +212,8 @@ export const interventionMessageSchema = z.object({
   sources: z.array(sourceCitationSchema),
   issuedAt: z.string(),
   /** V2: which speaker's claim this correction is attributed to. */
-  attributedTo: speakerRoleSchema.default("unknown")
+  attributedTo: speakerRoleSchema.default("unknown"),
+  topic: z.string().min(1).max(80).optional()
 });
 
 export type InterventionMessage = z.infer<typeof interventionMessageSchema>;
