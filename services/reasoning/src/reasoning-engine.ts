@@ -810,3 +810,73 @@ export function buildRollingWindow(segments: TranscriptSegment[], windowSize = D
 export function shouldIntervene(result: ClaimVerificationResult, threshold: number) {
   return ["false", "misleading"].includes(result.verdict) && result.confidence >= threshold;
 }
+
+/**
+ * Tier 3: free-form topic extraction. Replaces the keyword-based slug enum
+ * with a tiny gpt-4o-mini call that returns a 2–5 word label like
+ * "Iran-Israel war", "S&P 500", or "AI regulation". The factory mirrors
+ * createReasoningEngine so the orchestrating consumer can build it once at
+ * boot and reuse the LLM client across every claim.
+ *
+ * The engine surface (assessWindow / verifyClaim) is intentionally NOT
+ * touched — the consumer runs extractTopic in parallel with verifyClaim via
+ * Promise.all, with a 3s ceiling and a "general" fallback so an LLM hiccup
+ * never delays a correction reaching the user.
+ */
+const topicExtractionSchema = z.object({
+  topic: z.string()
+});
+
+export type TopicExtractor = (claimText: string, correction?: string) => Promise<string>;
+
+export function createTopicExtractor(config: {
+  openAiApiKey?: string | undefined;
+  openAiModel?: string;
+  timeoutMs?: number;
+}): TopicExtractor {
+  const timeoutMs = config.timeoutMs ?? 3000;
+
+  if (!config.openAiApiKey) {
+    return async () => "general";
+  }
+
+  const llm = new ChatOpenAI({
+    apiKey: config.openAiApiKey,
+    model: config.openAiModel ?? "gpt-4o-mini",
+    temperature: 0,
+    maxTokens: 24
+  });
+
+  const topicPrompt = PromptTemplate.fromTemplate(
+    `You categorize a single claim by topic for a real-time fact-checker.\n` +
+      `Return a SHORT topic label of 2–5 words describing what the claim is about.\n` +
+      `No quotes, no punctuation at the end, no leading articles.\n` +
+      `Prefer specific named topics over coarse categories. If the claim is\n` +
+      `truly off-topic / unclassifiable, return "general".\n\n` +
+      `Examples:\n` +
+      `  Claim: "Iran fired missiles at Israel last week" → Iran-Israel conflict\n` +
+      `  Claim: "The S&P 500 hit a record high yesterday" → S&P 500\n` +
+      `  Claim: "GPT-5 was banned in the EU" → AI regulation\n` +
+      `  Claim: "Trump won the 2024 election" → US politics\n` +
+      `  Claim: "The Eiffel Tower is in Berlin" → European geography\n` +
+      `  Claim: "I just love sunsets" → general\n\n` +
+      `Claim: {claim}\nTopic:`
+  );
+
+  const topicChain = topicPrompt.pipe(llm.withStructuredOutput(topicExtractionSchema));
+
+  return async (claimText, correction) => {
+    const text = correction ? `${claimText} ${correction}` : claimText;
+    const invocation = topicChain.invoke({ claim: text });
+    // Hard ceiling: a topic call must never block a verdict reaching the
+    // user. The underlying HTTP request will continue until OpenAI replies,
+    // but the orchestrator stops waiting at timeoutMs and falls back.
+    const timer = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("topic-extraction-timeout")), timeoutMs)
+    );
+    const result = await Promise.race([invocation, timer]);
+    const cleaned = result.topic.trim().replace(/^["'`]+|["'`.,;:!?]+$/g, "");
+    if (!cleaned) return "general";
+    return cleaned.slice(0, 80);
+  };
+}

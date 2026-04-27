@@ -100,12 +100,6 @@ type SessionModeOption = {
   description: string;
 };
 
-type TopicInfo = {
-  slug: string;
-  label: string;
-  icon: string;
-};
-
 type StatusReadout = {
   label: string;
   value: string;
@@ -247,18 +241,12 @@ export class AppComponent implements OnDestroy {
   protected readonly topicMisinformation = signal<TopicMisinformationPoint[]>([]);
   protected readonly topicsLoading = signal(false);
 
-  protected readonly allTopics: TopicInfo[] = [
-    { slug: "politics", label: "Politics", icon: "podium-outline" },
-    { slug: "economics", label: "Economics", icon: "trending-up-outline" },
-    { slug: "health", label: "Health", icon: "pulse-outline" },
-    { slug: "science", label: "Science", icon: "flash-outline" },
-    { slug: "technology", label: "Technology", icon: "grid-outline" },
-    { slug: "education", label: "Education", icon: "school-outline" },
-    { slug: "law", label: "Law", icon: "shield-checkmark-outline" },
-    { slug: "culture", label: "Culture", icon: "sparkles-outline" },
-    { slug: "sports", label: "Sports", icon: "trophy-outline" },
-    { slug: "general", label: "General", icon: "newspaper-outline" }
-  ];
+  // Tier 3: hardcoded enum-keyed lookup table is gone. Topics now arrive
+  // as free-form strings ("Iran-Israel war", "S&P 500", "AI regulation")
+  // extracted by gpt-4o-mini at the reasoning service. Color is derived from
+  // a deterministic hash of the slug so the same topic gets the same swatch
+  // across the app; the label IS the slug.
+  private static readonly TOPIC_COLOR_BUCKETS = 8;
 
   // ───────────────── Session History ─────────────────
   protected readonly pastSessions = signal<PastSession[]>([]);
@@ -1281,7 +1269,24 @@ export class AppComponent implements OnDestroy {
   }
 
   protected topicLabel(slug: string): string {
-    return this.allTopics.find((t) => t.slug === slug)?.label ?? slug;
+    // Tier 3: free-form labels — the slug IS the human-readable label
+    // (e.g. "Iran-Israel war"). Empty string falls back to "general".
+    return slug?.trim() || "general";
+  }
+
+  /**
+   * Tier 3: deterministic slug → palette-color mapping. djb2-style hash so
+   * the same topic gets the same color across views/sessions. Buckets across
+   * 8 design tokens (--rt-topic-1..8) defined in styles.css.
+   */
+  protected topicColor(slug: string): string {
+    let hash = 0;
+    for (let i = 0; i < slug.length; i += 1) {
+      hash = ((hash << 5) - hash) + slug.charCodeAt(i);
+      hash |= 0;
+    }
+    const bucket = (Math.abs(hash) % AppComponent.TOPIC_COLOR_BUCKETS) + 1;
+    return `var(--rt-topic-${bucket})`;
   }
 
   // ───────────────────── Session History ─────────────────────

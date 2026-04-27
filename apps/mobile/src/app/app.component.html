@@ -427,14 +427,14 @@
                       @for (item of topicStackItems(); track item.slug; let i = $index) {
                         <span class="topic-stack-bar__seg"
                               [style.width.%]="item.percent"
-                              [style.background]="'var(--rt-topic-' + (i + 1) + ', var(--rt-ink))'"></span>
+                              [style.background]="topicColor(item.slug)"></span>
                       }
                     </div>
                     <ul class="topic-stack-list">
                       @for (item of topicStackItems(); track item.slug; let i = $index) {
                         <li>
                           <span class="topic-stack-list__dot"
-                                [style.background]="'var(--rt-topic-' + (i + 1) + ', var(--rt-ink))'"></span>
+                                [style.background]="topicColor(item.slug)"></span>
                           <span class="topic-stack-list__label">{{ item.label }}</span>
                           <span class="topic-stack-list__value">{{ item.percent }}%</span>
                         </li>

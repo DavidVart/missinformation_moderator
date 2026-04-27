@@ -49,13 +49,20 @@
   --rt-correction: #b8562a;
   --rt-correction-soft: rgba(184, 86, 42, 0.12);
 
-  /* ── Topic palette (stacked bar segments, darkest → lightest) ── */
+  /* ── Topic palette (stacked bar segments) ──
+   * Tier 3: 8-color palette since topics are now free-form strings (not a
+   * 10-value enum). The mobile component hashes each slug into one of these
+   * buckets so the same topic gets the same color across views, but unbounded
+   * topic strings stay legible. Colors stay warm-monochromatic so the bar
+   * reads as a cohesive design element rather than a rainbow chart. */
   --rt-topic-1: #1c1914;
   --rt-topic-2: #5c4f3e;
   --rt-topic-3: #8b7a63;
   --rt-topic-4: #bfaf94;
   --rt-topic-5: #d9ccb0;
   --rt-topic-6: #e8e2d4;
+  --rt-topic-7: #7a3e2e; /* deep clay */
+  --rt-topic-8: #4a5e3e; /* muted olive */
 
   /* ── Verified (forest) ── */
   --rt-verified: #3e6b4d;

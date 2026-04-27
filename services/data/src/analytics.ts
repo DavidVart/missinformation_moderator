@@ -1,31 +1,19 @@
 import {
   monthlyReflectionSchema,
   sessionScoreSchema,
-  topicSlugSchema,
   topicSummarySchema,
-  type ClaimVerificationResult,
-  type TopicSlug
+  type ClaimVerificationResult
 } from "@project-veritas/contracts";
 import type { Pool } from "pg";
 import { v4 as uuidv4 } from "uuid";
-import type { z } from "zod";
-import type { transcriptSegmentSchema } from "@project-veritas/contracts";
 
-const TOPIC_DEFINITIONS: Array<{
-  slug: TopicSlug;
-  label: string;
-  keywords: string[];
-}> = [
-  { slug: "politics", label: "Politics", keywords: ["election", "president", "kamala", "trump", "biden", "senate", "government", "democrat", "republican"] },
-  { slug: "economics", label: "Economics", keywords: ["tax", "inflation", "economy", "gdp", "recession", "market", "trade", "jobs", "tariff"] },
-  { slug: "health", label: "Health", keywords: ["covid", "vaccine", "doctor", "hospital", "disease", "medicine", "health", "nutrition"] },
-  { slug: "science", label: "Science", keywords: ["planet", "earth", "physics", "chemistry", "biology", "scientist", "research", "space"] },
-  { slug: "technology", label: "Technology", keywords: ["ai", "software", "chip", "computer", "robot", "openai", "internet", "app", "device"] },
-  { slug: "education", label: "Education", keywords: ["school", "college", "major", "student", "teacher", "campus", "education", "university"] },
-  { slug: "law", label: "Law", keywords: ["law", "court", "judge", "legal", "constitution", "rights", "lawsuit", "crime"] },
-  { slug: "culture", label: "Culture", keywords: ["movie", "music", "religion", "bible", "culture", "celebrity", "media", "society"] },
-  { slug: "sports", label: "Sports", keywords: ["game", "score", "team", "championship", "soccer", "nba", "nfl", "baseball", "sports"] }
-];
+// Tier 3: free-form topic labels are populated by the reasoning service
+// (gpt-4o-mini extraction call) and ride on ClaimVerificationResult.topic.
+// The data service no longer classifies topics — it just persists what it
+// receives. The 10-value enum + keyword table that used to live here have
+// been removed; any value missing from the verifier (older messages, LLM
+// hiccups upstream) falls back to "general" at the persistence step.
+const FALLBACK_TOPIC = "general";
 
 function normalizeText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -78,29 +66,6 @@ export async function resolveUserFromAuthSession(pool: Pool, authorizationHeader
   );
 
   return result.rows[0] ?? null;
-}
-
-export function classifyTopic(text: string) {
-  const normalized = normalizeText(text);
-  let best = { slug: "general" as TopicSlug, label: "General", score: 0, matches: [] as string[] };
-
-  for (const topic of TOPIC_DEFINITIONS) {
-    const matches = topic.keywords.filter((keyword) => normalized.includes(keyword));
-    if (matches.length > best.score) {
-      best = {
-        slug: topic.slug,
-        label: topic.label,
-        score: matches.length,
-        matches
-      };
-    }
-  }
-
-  return {
-    topicSlug: best.slug,
-    label: best.label,
-    highlights: best.matches.slice(0, 3)
-  };
 }
 
 function calculatePenalty(verdict: ClaimVerificationResult["verdict"], confidence: number, repeatCount: number) {
@@ -211,18 +176,24 @@ export async function bootstrapAnalyticsSchema(pool: Pool) {
   `);
 }
 
-async function upsertSessionTopic(pool: Pool, sessionId: string, userId: string | undefined, topic: ReturnType<typeof classifyTopic>, patch: {
-  addSegments?: number;
-  addClaims?: number;
-  addMisinformation?: number;
-}) {
+async function upsertSessionTopic(
+  pool: Pool,
+  sessionId: string,
+  userId: string | undefined,
+  topicLabel: string,
+  patch: {
+    addSegments?: number;
+    addClaims?: number;
+    addMisinformation?: number;
+  }
+) {
   const current = await pool.query(
     `
       SELECT segment_count, claim_count, misinformation_count, accuracy_score, highlights_json
       FROM session_topics
       WHERE session_id = $1 AND topic_slug = $2
     `,
-    [sessionId, topic.topicSlug]
+    [sessionId, topicLabel]
   );
 
   const row = current.rows[0];
@@ -232,7 +203,10 @@ async function upsertSessionTopic(pool: Pool, sessionId: string, userId: string 
   const accuracyScore = claimCount === 0
     ? 100
     : Number(((1 - misinformationCount / claimCount) * 100).toFixed(2));
-  const highlights = mergeHighlights(row?.highlights_json, topic.highlights);
+  // Tier 3: free-form labels mean there are no LLM-extracted "highlights"
+  // anymore (the keyword table that produced them is gone). The column stays
+  // (legacy data) but is always written empty going forward.
+  const highlights = mergeHighlights(row?.highlights_json, []);
 
   await pool.query(
     `
@@ -263,8 +237,8 @@ async function upsertSessionTopic(pool: Pool, sessionId: string, userId: string 
     [
       sessionId,
       userId ?? null,
-      topic.topicSlug,
-      topic.label,
+      topicLabel,
+      topicLabel,
       segmentCount,
       claimCount,
       misinformationCount,
@@ -272,12 +246,6 @@ async function upsertSessionTopic(pool: Pool, sessionId: string, userId: string 
       JSON.stringify(highlights)
     ]
   );
-}
-
-export async function persistTranscriptTopic(pool: Pool, segment: z.infer<typeof transcriptSegmentSchema>) {
-  const topic = classifyTopic(segment.text);
-  await upsertSessionTopic(pool, segment.sessionId, segment.userId, topic, { addSegments: 1 });
-  return topic;
 }
 
 export async function ensureUserProfile(pool: Pool, userId: string) {
@@ -406,7 +374,10 @@ export async function recomputeSessionScore(pool: Pool, result: ClaimVerificatio
 }
 
 export async function persistClaimAnalytics(pool: Pool, result: ClaimVerificationResult) {
-  const topic = classifyTopic(`${result.claimText} ${result.correction}`);
+  // Tier 3: topic now arrives populated by the reasoning service's gpt-4o-mini
+  // extraction call. Fall back to "general" for messages from older verifier
+  // builds (or LLM hiccups upstream) that didn't carry the field.
+  const topicLabel = result.topic?.trim() || FALLBACK_TOPIC;
   const canonicalClaim = canonicalizeClaim(result.claimText);
   const repeats = await pool.query(
     "SELECT COUNT(*)::int AS repeat_count FROM analytics_claims WHERE session_id = $1 AND canonical_claim = $2",
@@ -429,7 +400,7 @@ export async function persistClaimAnalytics(pool: Pool, result: ClaimVerificatio
       result.verdict,
       result.confidence,
       penalty,
-      topic.topicSlug,
+      topicLabel,
       result.speakerRole ?? "unknown"
     ]
   );
@@ -444,18 +415,18 @@ export async function persistClaimAnalytics(pool: Pool, result: ClaimVerificatio
       result.claimId,
       result.sessionId,
       result.userId ?? null,
-      topic.topicSlug,
-      topic.label,
-      JSON.stringify(topic.highlights)
+      topicLabel,
+      topicLabel,
+      JSON.stringify([])
     ]
   );
 
-  await upsertSessionTopic(pool, result.sessionId, result.userId, topic, {
+  await upsertSessionTopic(pool, result.sessionId, result.userId, topicLabel, {
     addClaims: 1,
     addMisinformation: ["false", "misleading"].includes(result.verdict) ? 1 : 0
   });
 
-  return { topic, penalty };
+  return { topicLabel, penalty };
 }
 
 function monthBounds(month: string) {
@@ -620,8 +591,8 @@ export async function generateMonthlyReflection(pool: Pool, userId: string, mont
   );
 
   const topTopics = topicsResult.rows.map((row) => topicSummarySchema.parse({
-    topicSlug: topicSlugSchema.parse(String(row.topic_slug)),
-    label: String(row.topic_label),
+    topicSlug: String(row.topic_slug),
+    label: String(row.topic_label || row.topic_slug),
     segmentCount: Number(row.segment_count),
     claimCount: Number(row.claim_count),
     misinformationCount: Number(row.misinformation_count),
@@ -630,8 +601,8 @@ export async function generateMonthlyReflection(pool: Pool, userId: string, mont
   }));
 
   const misinformationHotspots = hotspotsResult.rows.map((row) => ({
-    label: TOPIC_DEFINITIONS.find((topic) => topic.slug === row.topic_slug)?.label ?? "General",
-    topicSlug: topicSlugSchema.parse(String(row.topic_slug)),
+    label: String(row.topic_slug),
+    topicSlug: String(row.topic_slug),
     count: Number(row.count)
   }));
 

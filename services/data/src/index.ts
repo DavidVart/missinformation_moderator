@@ -14,7 +14,6 @@ import {
   parseStreamPayload,
   sessionEventSchema,
   topicMisinformationPointSchema,
-  topicSlugSchema,
   topicSummarySchema,
   transcriptSegmentSchema
 } from "@project-veritas/contracts";
@@ -38,7 +37,6 @@ import {
   generateMonthlyReflection,
   materializePendingAttributionsForUser,
   persistClaimAnalytics,
-  persistTranscriptTopic,
   recomputeSessionScore,
   refreshSnapshots,
   resolveUserFromAuthSession,
@@ -76,8 +74,10 @@ async function bootstrap() {
   const historyNotificationConsumer = await createRedisConnection(env.REDIS_URL);
 
   // Analytics consumers
+  // Tier 3: dropped the per-segment topic consumer — topic classification
+  // is now per-claim only (free-form labels via gpt-4o-mini at the
+  // reasoning service). No more keyword classification on raw transcripts.
   const analyticsSessionConsumer = await createRedisConnection(env.REDIS_URL);
-  const analyticsTranscriptConsumer = await createRedisConnection(env.REDIS_URL);
   const analyticsVerdictConsumer = await createRedisConnection(env.REDIS_URL);
 
   // ── Health ──
@@ -542,7 +542,10 @@ async function bootstrap() {
   });
 
   app.get(`${env.ANALYTICS_API_PREFIX}/leaderboards/topics/:topicSlug`, async (request, response) => {
-    const topicSlug = topicSlugSchema.parse(request.params.topicSlug);
+    // Tier 3: free-form topic labels — Express has already URL-decoded the
+    // path param, so we just trim/clamp it. The SQL is parameterized; no
+    // injection risk from accepting an arbitrary string.
+    const topicSlug = String(request.params.topicSlug).slice(0, 80);
     const result = await pool.query(
       `
         SELECT
@@ -600,8 +603,8 @@ async function bootstrap() {
 
     response.json({
       topics: result.rows.map((row) => topicSummarySchema.parse({
-        topicSlug: topicSlugSchema.parse(String(row.topic_slug)),
-        label: String(row.topic_label),
+        topicSlug: String(row.topic_slug),
+        label: String(row.topic_label || row.topic_slug),
         segmentCount: Number(row.segment_count),
         claimCount: Number(row.claim_count),
         misinformationCount: Number(row.misinformation_count),
@@ -612,7 +615,7 @@ async function bootstrap() {
   });
 
   app.get(`${env.ANALYTICS_API_PREFIX}/topics/:topicSlug/misinformation`, async (request, response) => {
-    const topicSlug = topicSlugSchema.parse(request.params.topicSlug);
+    const topicSlug = String(request.params.topicSlug).slice(0, 80);
     const result = await pool.query(
       `
         SELECT claims.claim_text, claims.verdict, claims.correction, claims.session_id, claims.checked_at
@@ -687,44 +690,26 @@ async function bootstrap() {
 
   // Analytics consumers
   void createJsonConsumer(
-    analyticsTranscriptConsumer,
-    STREAM_NAMES.transcriptSegments,
-    CONSUMER_GROUPS.analyticsTranscripts,
-    `analytics-transcripts-${uuidv4()}`,
-    (value) => parseStreamPayload(value, transcriptSegmentSchema),
-    async (_id, segment) => {
-      const topic = await persistTranscriptTopic(pool, segment);
-      await xAddJson(redis, STREAM_NAMES.topicsAnalyzed, {
-        sessionId: segment.sessionId,
-        userId: segment.userId,
-        topicSlug: topic.topicSlug,
-        label: topic.label,
-        checkedAt: new Date().toISOString()
-      });
-    }
-  );
-
-  void createJsonConsumer(
     analyticsVerdictConsumer,
     STREAM_NAMES.verdictsCompleted,
     CONSUMER_GROUPS.analyticsVerdicts,
     `analytics-verdicts-${uuidv4()}`,
     (value) => parseStreamPayload(value, claimVerificationResultSchema),
     async (_id, result) => {
-      const { topic, penalty } = await persistClaimAnalytics(pool, result);
+      const { topicLabel, penalty } = await persistClaimAnalytics(pool, result);
       const score = await recomputeSessionScore(pool, result);
       await xAddJson(redis, STREAM_NAMES.topicsAnalyzed, {
         sessionId: result.sessionId,
         userId: result.userId,
-        topicSlug: topic.topicSlug,
-        label: topic.label,
+        topicSlug: topicLabel,
+        label: topicLabel,
         checkedAt: result.checkedAt
       });
       await xAddJson(redis, STREAM_NAMES.sessionScores, score);
       logger.info({
         sessionId: result.sessionId,
         claimId: result.claimId,
-        topicSlug: topic.topicSlug,
+        topicSlug: topicLabel,
         penalty,
         accuracyScore: score.accuracyScore
       }, "Updated analytics score");

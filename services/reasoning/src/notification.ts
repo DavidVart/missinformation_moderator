@@ -88,6 +88,7 @@ export function createInterventionMessage(result: ClaimVerificationResult) {
     // V2: record which speaker's claim this correction is about, so the UI
     // can show "Opponent said: ..." or "You said: ..." and so the analytics
     // service can attribute the correction to the correct speaker's score.
-    attributedTo: result.speakerRole ?? "unknown"
+    attributedTo: result.speakerRole ?? "unknown",
+    topic: result.topic
   });
 }

@@ -29,6 +29,7 @@ import {
   claimIdentityKey,
   claimsAreEquivalent,
   createReasoningEngine,
+  createTopicExtractor,
   detectProfanity,
   fetchCitations,
   shouldAssessWindow
@@ -104,6 +105,37 @@ const reasoningEngine = createReasoningEngine({
   openAiModel: env.OPENAI_MODEL,
   tavilyApiKey: env.TAVILY_API_KEY
 });
+
+// Tier 3: free-form topic label extracted via a tiny gpt-4o-mini call. The
+// extractor is invoked at the verifier consumer in parallel with
+// fetchCitations + verifyClaim, so the worst case adds zero wall time.
+// A 3s timeout + "general" fallback guarantees an LLM hiccup never delays
+// a correction reaching the user.
+const extractTopic = createTopicExtractor({
+  openAiApiKey: env.OPENAI_API_KEY,
+  openAiModel: env.OPENAI_MODEL,
+  timeoutMs: 3000
+});
+
+async function extractTopicWithFallback(
+  sessionId: string,
+  claimText: string,
+  correction?: string
+): Promise<string> {
+  try {
+    return await extractTopic(claimText, correction);
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { phase: "topic-extraction", sessionId },
+      extra: { claimText }
+    });
+    logger.warn(
+      { err: error, sessionId, claimText },
+      "Topic extraction failed — falling back to general"
+    );
+    return "general";
+  }
+}
 
 app.use(cors());
 app.use(createHttpLogger("reasoning-service", env.LOG_LEVEL));
@@ -463,6 +495,14 @@ async function bootstrap() {
           ? "That sounded like an opinion — backing it with evidence would make it more persuasive."
           : "That's intense — can you back it up with evidence?";
 
+        // Tier 3: profanity is the user's swearing — not topical, hardcode
+        // "general" and skip the API call. Opinions DO get extraction since
+        // "AI is dangerous" or "Trump is the best president" carry topical
+        // content worth labelling on the chip.
+        const topic = isOpinion
+          ? await extractTopicWithFallback(assessment.sessionId, assessment.claimText)
+          : "general";
+
         const softVerification = claimVerificationResultSchema.parse({
           claimId: assessment.claimId,
           sessionId: assessment.sessionId,
@@ -475,7 +515,8 @@ async function bootstrap() {
           correction,
           sources: [],
           checkedAt: new Date().toISOString(),
-          speakerRole: assessment.speakerRole ?? "unknown"
+          speakerRole: assessment.speakerRole ?? "unknown",
+          topic
         });
 
         await xAddJson(redis, STREAM_NAMES.verdictsCompleted, softVerification);
@@ -484,11 +525,19 @@ async function bootstrap() {
           claimText: assessment.claimText,
           verdict,
           confidence: assessment.confidence,
+          topic,
           verificationDurationMs: Date.now() - verificationStartedAtMs,
           outcome: isOpinion ? "opinion-flagged" : "profanity-flagged"
         }, "Completed claim verification");
         return;
       }
+
+      // Tier 3: kick off topic extraction at the same instant as fetchCitations
+      // so it overlaps with both the Tavily round-trip AND the verifyClaim LLM
+      // call. By the time verifyClaim resolves, topicPromise is almost always
+      // already settled, so we add zero wall-time. The 3s ceiling inside
+      // extractTopicWithFallback caps the worst case if OpenAI is slow.
+      const topicPromise = extractTopicWithFallback(assessment.sessionId, assessment.claimText);
 
       let citations: SourceCitation[];
       try {
@@ -524,7 +573,9 @@ async function bootstrap() {
         return;
       }
 
-      await xAddJson(redis, STREAM_NAMES.verdictsCompleted, verification);
+      const topic = await topicPromise;
+      const verificationWithTopic = { ...verification, topic };
+      await xAddJson(redis, STREAM_NAMES.verdictsCompleted, verificationWithTopic);
 
       // Observability: explicitly note the outcome class so true/unverified
       // claims are visible in logs (they previously went silently into the
@@ -542,6 +593,7 @@ async function bootstrap() {
         verdict: verification.verdict,
         confidence: verification.confidence,
         citationCount: citations.length,
+        topic,
         verificationDurationMs: Date.now() - verificationStartedAtMs,
         timeSensitive: assessment.timeSensitive,
         outcome
