@@ -3145,33 +3145,33 @@
 /* Tier 4 (2/3): profanity variant for the strip + floating toast. */
 
 .intervention-strip.is-profanity {
-  border-left-color: #c25a3a;
+  border-left-color: var(--rt-profanity);
   background: rgba(245, 200, 178, 0.45);
 }
 
 .intervention-strip.is-profanity .intervention-kicker {
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 .correction-toast.is-profanity {
   background: linear-gradient(180deg, rgba(252, 232, 222, 0.96) 0%, rgba(245, 200, 178, 0.92) 100%);
-  border: 1px solid rgba(194, 90, 58, 0.25);
+  border: 1px solid var(--rt-profanity-soft);
 }
 
 .correction-toast.is-profanity::before {
-  background: #c25a3a;
+  background: var(--rt-profanity);
 }
 
 .correction-toast.is-profanity .correction-toast__badge {
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 .correction-toast.is-profanity .correction-toast__badge ion-icon {
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 .correction-toast.is-profanity .correction-toast__progress {
-  background: #c25a3a;
+  background: var(--rt-profanity);
 }
 
 /* Post-session attribution modal */
@@ -3443,11 +3443,11 @@
    distinguish "subjective view" from "intense language" at a glance. */
 .transcript-bubble__correction.is-profanity {
   background: rgba(245, 200, 178, 0.55);
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 .transcript-bubble__correction.is-profanity ion-icon {
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -4183,11 +4183,11 @@
 
 .transcript-fold__correction.is-profanity {
   background: rgba(245, 200, 178, 0.55);
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 .transcript-fold__correction.is-profanity ion-icon {
-  color: #c25a3a;
+  color: var(--rt-profanity);
 }
 
 /* History cards — clickable now. */

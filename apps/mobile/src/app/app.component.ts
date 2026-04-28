@@ -271,6 +271,14 @@ export class AppComponent implements OnDestroy {
     return this.sessionModes.find((m) => m.mode === mode)?.title ?? mode;
   });
   protected readonly latestIntervention = computed(() => this.interventions()[0] ?? null);
+  // Tier 4: opinion + profanity are "soft" verdicts that suppress the
+  // confidence pill, source pill, and Speak button on every intervention
+  // surface (live strip + floating toast + transcript chip). Centralizing
+  // the test here keeps every template site in lockstep — adding a future
+  // soft verdict only needs an update here.
+  protected isSoftVerdict(verdict: string | null | undefined): boolean {
+    return verdict === "opinion" || verdict === "profanity";
+  }
   protected readonly hasSessionData = computed(() => this.transcriptSegments().length > 0 || this.interventions().length > 0);
   protected readonly modeShowsRealtimeOverlay = computed(() =>
     this.selectedMode() === "debate_live"

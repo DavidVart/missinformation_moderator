@@ -214,6 +214,44 @@ export function detectProfanity(text: string): { found: boolean; word?: string }
   return { found: false };
 }
 
+const SOFT_VERDICT_CORRECTIONS = {
+  opinion: "That sounded like an opinion — backing it with evidence would make it more persuasive.",
+  profanity: "That's intense — can you back it up with evidence?"
+} as const;
+
+/**
+ * Build the synthetic ClaimVerificationResult for opinion / profanity
+ * short-circuits in the verifier consumer. Pure function so the verdict
+ * mapping, correction text, and schema invariants stay testable without
+ * mocking Redis or the topic-extraction LLM. The consumer supplies the
+ * topic (Tier 3 extraction for opinions, "general" for profanity) and an
+ * optional `checkedAt` for deterministic tests.
+ */
+export function buildSoftVerification(
+  assessment: ClaimAssessment,
+  options: { topic: string; checkedAt?: string }
+): ClaimVerificationResult {
+  if (assessment.claimType !== "opinion" && assessment.claimType !== "profanity") {
+    throw new Error(`buildSoftVerification: claimType must be opinion or profanity, got "${assessment.claimType}"`);
+  }
+  const verdict = assessment.claimType;
+  return claimVerificationResultSchema.parse({
+    claimId: assessment.claimId,
+    sessionId: assessment.sessionId,
+    userId: assessment.userId,
+    mode: assessment.mode,
+    transcriptSegmentIds: assessment.transcriptSegmentIds,
+    claimText: assessment.claimText,
+    verdict,
+    confidence: assessment.confidence,
+    correction: SOFT_VERDICT_CORRECTIONS[verdict],
+    sources: [],
+    checkedAt: options.checkedAt ?? new Date().toISOString(),
+    speakerRole: assessment.speakerRole ?? "unknown",
+    topic: options.topic
+  });
+}
+
 function overlapCount(left: string[], right: string[]) {
   const rightSet = new Set(right);
   return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0);

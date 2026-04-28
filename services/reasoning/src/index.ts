@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import {
   buildRollingWindow,
+  buildSoftVerification,
   buildWindowSignature,
   claimIdentityKey,
   claimsAreEquivalent,
@@ -342,7 +343,7 @@ async function bootstrap() {
             query: segment.text,
             isVerifiable: false,
             confidence: 0.95, // regex hit is deterministic
-            rationale: `Strong language detected: "${profanityHit.word ?? ""}"`,
+            rationale: `Strong language detected: "${profanityHit.word}"`,
             speakerRole: segment.speakerRole ?? "unknown",
             timeSensitive: false,
             claimType: "profanity"
@@ -489,45 +490,25 @@ async function bootstrap() {
       // verdict="opinion" / verdict="profanity" as soft chips rather than a
       // red correction.
       if (assessment.claimType === "opinion" || assessment.claimType === "profanity") {
-        const isOpinion = assessment.claimType === "opinion";
-        const verdict = isOpinion ? "opinion" : "profanity";
-        const correction = isOpinion
-          ? "That sounded like an opinion — backing it with evidence would make it more persuasive."
-          : "That's intense — can you back it up with evidence?";
-
         // Tier 3: profanity is the user's swearing — not topical, hardcode
         // "general" and skip the API call. Opinions DO get extraction since
         // "AI is dangerous" or "Trump is the best president" carry topical
         // content worth labelling on the chip.
-        const topic = isOpinion
+        const topic = assessment.claimType === "opinion"
           ? await extractTopicWithFallback(assessment.sessionId, assessment.claimText)
           : "general";
 
-        const softVerification = claimVerificationResultSchema.parse({
-          claimId: assessment.claimId,
-          sessionId: assessment.sessionId,
-          userId: assessment.userId,
-          mode: assessment.mode,
-          transcriptSegmentIds: assessment.transcriptSegmentIds,
-          claimText: assessment.claimText,
-          verdict,
-          confidence: assessment.confidence,
-          correction,
-          sources: [],
-          checkedAt: new Date().toISOString(),
-          speakerRole: assessment.speakerRole ?? "unknown",
-          topic
-        });
+        const softVerification = buildSoftVerification(assessment, { topic });
 
         await xAddJson(redis, STREAM_NAMES.verdictsCompleted, softVerification);
         logger.info({
           sessionId: assessment.sessionId,
           claimText: assessment.claimText,
-          verdict,
+          verdict: softVerification.verdict,
           confidence: assessment.confidence,
           topic,
           verificationDurationMs: Date.now() - verificationStartedAtMs,
-          outcome: isOpinion ? "opinion-flagged" : "profanity-flagged"
+          outcome: assessment.claimType === "opinion" ? "opinion-flagged" : "profanity-flagged"
         }, "Completed claim verification");
         return;
       }

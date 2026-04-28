@@ -49,6 +49,10 @@
   --rt-correction: #b8562a;
   --rt-correction-soft: rgba(184, 86, 42, 0.12);
 
+  /* ── Profanity (Tier 4): coral, distinct from amber opinion + terracotta correction ── */
+  --rt-profanity: #c25a3a;
+  --rt-profanity-soft: rgba(194, 90, 58, 0.25);
+
   /* ── Topic palette (stacked bar segments) ──
    * Tier 3: 8-color palette since topics are now free-form strings (not a
    * 10-value enum). The mobile component hashes each slug into one of these

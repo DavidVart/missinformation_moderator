@@ -5,6 +5,7 @@ import { claimAssessmentSchema } from "@project-veritas/contracts";
 import { shouldPublishNotification } from "../src/notification.js";
 import {
   buildRollingWindow,
+  buildSoftVerification,
   buildTavilyRequestBody,
   canonicalizeClaimText,
   claimsAreEquivalent,
@@ -415,5 +416,71 @@ describe("reasoning helpers", () => {
       ...baseAssessment,
       speakerRole: "opponent" as const
     }, 0.75)).toBe(true);
+  });
+
+  // Tier 4 short-circuit: opinion / profanity skip Tavily + verifier and a
+  // synthetic ClaimVerificationResult is built from the assessment. These
+  // tests pin the verdict mapping, correction text, and field passthrough so
+  // future refactors can't silently break the soft-prompt UI contract.
+  function softAssessment(claimType: "opinion" | "profanity" | "fact") {
+    return claimAssessmentSchema.parse({
+      claimId: "claim_s",
+      sessionId: "session_42",
+      userId: "user_7",
+      mode: "debate_live",
+      transcriptSegmentIds: ["seg_1", "seg_2"],
+      claimText: "That's just my view",
+      query: "That's just my view",
+      isVerifiable: false,
+      confidence: 0.82,
+      rationale: "subjective",
+      speakerRole: "opponent",
+      timeSensitive: false,
+      claimType
+    });
+  }
+
+  it("buildSoftVerification maps opinion claimType to verdict='opinion' with the back-it-up nudge", () => {
+    const result = buildSoftVerification(softAssessment("opinion"), {
+      topic: "ai-policy",
+      checkedAt: "2026-04-27T12:00:00.000Z"
+    });
+    expect(result.verdict).toBe("opinion");
+    expect(result.correction).toContain("opinion");
+    expect(result.correction).toContain("evidence");
+    expect(result.sources).toEqual([]);
+    expect(result.topic).toBe("ai-policy");
+    expect(result.checkedAt).toBe("2026-04-27T12:00:00.000Z");
+  });
+
+  it("buildSoftVerification maps profanity claimType to verdict='profanity' with the back-it-up nudge", () => {
+    const result = buildSoftVerification(softAssessment("profanity"), {
+      topic: "general",
+      checkedAt: "2026-04-27T12:00:00.000Z"
+    });
+    expect(result.verdict).toBe("profanity");
+    expect(result.correction).toContain("intense");
+    expect(result.correction).toContain("back it up");
+    expect(result.sources).toEqual([]);
+    expect(result.topic).toBe("general");
+  });
+
+  it("buildSoftVerification copies through identity and routing fields from the assessment", () => {
+    const assessment = softAssessment("opinion");
+    const result = buildSoftVerification(assessment, { topic: "general", checkedAt: "2026-04-27T12:00:00.000Z" });
+    expect(result.claimId).toBe(assessment.claimId);
+    expect(result.sessionId).toBe(assessment.sessionId);
+    expect(result.userId).toBe(assessment.userId);
+    expect(result.mode).toBe(assessment.mode);
+    expect(result.transcriptSegmentIds).toEqual(assessment.transcriptSegmentIds);
+    expect(result.claimText).toBe(assessment.claimText);
+    expect(result.confidence).toBe(assessment.confidence);
+    expect(result.speakerRole).toBe(assessment.speakerRole);
+  });
+
+  it("buildSoftVerification refuses fact claimType — short-circuit must not be reached for fact-checkable claims", () => {
+    expect(() =>
+      buildSoftVerification(softAssessment("fact"), { topic: "general", checkedAt: "2026-04-27T12:00:00.000Z" })
+    ).toThrow(/opinion or profanity/);
   });
 });

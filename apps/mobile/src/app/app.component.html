@@ -218,7 +218,7 @@
                     </p>
                     <p class="intervention-copy">{{ latestIntervention().correction }}</p>
                     <div class="intervention-meta">
-                      @if (latestIntervention()?.verdict !== 'opinion' && latestIntervention()?.verdict !== 'profanity') {
+                      @if (!isSoftVerdict(latestIntervention()?.verdict)) {
                         <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
                         @if (latestSource(); as source) {
                           <button class="source-pill" type="button" (click)="openLatestSource()">
@@ -228,7 +228,7 @@
                       }
                     </div>
                   </div>
-                  @if (latestIntervention()?.verdict !== 'opinion' && latestIntervention()?.verdict !== 'profanity') {
+                  @if (!isSoftVerdict(latestIntervention()?.verdict)) {
                     <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
                   }
                 </section>
@@ -523,6 +523,7 @@
                       class="transcript-fold__toggle"
                       type="button"
                       [attr.aria-expanded]="transcriptExpanded()"
+                      aria-controls="transcript-fold-body"
                       (click)="toggleTranscriptExpanded()">
                       <span class="transcript-fold__label">
                         Transcript
@@ -531,7 +532,7 @@
                       <ion-icon [name]="transcriptExpanded() ? 'chevron-up-outline' : 'chevron-down-outline'"></ion-icon>
                     </button>
                     @if (transcriptExpanded()) {
-                      <div class="transcript-fold__body">
+                      <div class="transcript-fold__body" id="transcript-fold-body">
                         @for (bubble of speakerTranscript(); track $index) {
                           <div class="transcript-fold__bubble" [class.is-self]="bubble.speaker === 'self'" [class.is-opponent]="bubble.speaker === 'opponent'">
                             <span class="transcript-fold__speaker">{{ bubble.label }}</span>
@@ -1183,7 +1184,7 @@
           </div>
           <p class="correction-toast__claim">"{{ intervention.claimText }}"</p>
           <p class="correction-toast__correction">{{ intervention.correction }}</p>
-          @if (intervention.verdict !== 'opinion' && intervention.verdict !== 'profanity') {
+          @if (!isSoftVerdict(intervention.verdict)) {
             <div class="correction-toast__actions">
               <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
               @if (intervention.sources[0]) {
