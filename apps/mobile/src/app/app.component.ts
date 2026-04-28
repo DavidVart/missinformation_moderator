@@ -51,6 +51,7 @@ import {
   newspaperOutline,
   ellipsisHorizontal
 } from "ionicons/icons";
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
 import { Subscription } from "rxjs";
 
 import type {
@@ -880,11 +881,30 @@ export class AppComponent implements OnDestroy {
             clearTimeout(this.correctionDismissTimer);
           }
 
-          // Auto-dismiss after 12 seconds so the overlay doesn't block forever
+          // Soft verdicts (opinion / profanity) get a shorter window because
+          // there's nothing to interact with — no Speak button, no source pill.
+          // Hard verdicts (false / misleading) keep the longer 12s window so
+          // the user has time to tap Speak or open a citation. A new
+          // intervention always replaces the slot (latestIntervention() reads
+          // interventions()[0]), so a fact-check arriving while a soft toast
+          // is up just resets the timer to the hard-verdict duration.
+          const dismissMs = this.isSoftVerdict(message.verdict) ? 5_000 : 12_000;
           this.correctionDismissTimer = setTimeout(() => {
             this.isCorrectionOpen.set(false);
             this.correctionDismissTimer = null;
-          }, 12_000);
+          }, dismissMs);
+
+          // Haptic feedback on native so the user feels the correction even
+          // when not looking at the screen. Soft verdicts get a Light tap
+          // (advisory), hard verdicts get a Medium impact (the system thinks
+          // you said something wrong — pay attention). No-op on web /
+          // unsupported devices.
+          const impactStyle = this.isSoftVerdict(message.verdict)
+            ? ImpactStyle.Light
+            : ImpactStyle.Medium;
+          void Haptics.impact({ style: impactStyle }).catch(() => {
+            // Haptics plugin missing on web — silently ignore.
+          });
         }
 
         void this.refreshHistory();
