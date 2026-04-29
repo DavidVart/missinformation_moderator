@@ -33,6 +33,7 @@ import {
   createTopicExtractor,
   detectProfanity,
   fetchCitations,
+  redactClaimText,
   shouldAssessWindow
 } from "./reasoning-engine.js";
 import { createInterventionMessage, shouldPublishNotification } from "./notification.js";
@@ -121,17 +122,24 @@ const extractTopic = createTopicExtractor({
 async function extractTopicWithFallback(
   sessionId: string,
   claimText: string,
-  correction?: string
+  options: { correction?: string; sensitive?: boolean } = {}
 ): Promise<string> {
   try {
-    return await extractTopic(claimText, correction);
+    return await extractTopic(claimText, options.correction);
   } catch (error) {
+    // Tier 4+: redact when called for sensitive claim types (hate, profanity).
+    // Topic extraction runs in parallel with the verifier for fact claims (so
+    // claimText there is the user's normal claim and stays visible for
+    // debugging) and for the soft-verdict path for opinion/hate (where the
+    // hate utterance MUST stay out of Sentry). Caller passes sensitive=true
+    // for hate; opinion stays un-redacted by design.
+    const extra = options.sensitive ? redactClaimText(claimText) : { claimText };
     Sentry.captureException(error, {
       tags: { phase: "topic-extraction", sessionId },
-      extra: { claimText }
+      extra
     });
     logger.warn(
-      { err: error, sessionId, claimText },
+      { err: error, sessionId, ...extra },
       "Topic extraction failed — falling back to general"
     );
     return "general";
@@ -357,13 +365,20 @@ async function bootstrap() {
             detectionLagMs: Math.max(0, Date.now() - Date.parse(segment.endedAt))
           }, "Profanity detected — published synthetic claim");
         } catch (error) {
+          // Tier 4+: do NOT pass the raw segment text or the matched word to
+          // Sentry — profanity utterances live in the user's session and we
+          // don't want them surfacing in our third-party error monitoring
+          // backend (Sentry employees + anyone with project access can read
+          // them). Use a deterministic hash + 3-word preview so on-call can
+          // still cluster repeat incidents without seeing the full content.
+          const redacted = redactClaimText(segment.text);
           logger.error(
-            { err: error, segmentText: segment.text },
+            { err: error, claimTextHash: redacted.claimTextHash, claimTextPreview: redacted.claimTextPreview },
             "Failed to publish profanity assessment"
           );
           Sentry.captureException(error, {
             tags: { phase: "profanity", sessionId: segment.sessionId },
-            extra: { segmentText: segment.text, word: profanityHit.word }
+            extra: redacted
           });
         }
       }
@@ -483,32 +498,53 @@ async function bootstrap() {
     async (_id, assessment) => {
       const verificationStartedAtMs = Date.now();
 
-      // Tier 4: opinions and profanity short-circuit — no Tavily call, no
-      // LLM verifier. Build a synthetic verification result that flows
+      // Tier 4: opinions, profanity, and hate short-circuit — no Tavily call,
+      // no LLM verifier. Build a synthetic verification result that flows
       // through the same notification path so dedup / rate-limit /
       // per-session "already shown" all still apply, then the mobile renders
-      // verdict="opinion" / verdict="profanity" as soft chips rather than a
-      // red correction.
-      if (assessment.claimType === "opinion" || assessment.claimType === "profanity") {
+      // verdict="opinion" / verdict="profanity" / verdict="hate" as soft
+      // chips rather than a red correction.
+      if (
+        assessment.claimType === "opinion" ||
+        assessment.claimType === "profanity" ||
+        assessment.claimType === "hate"
+      ) {
         // Tier 3: profanity is the user's swearing — not topical, hardcode
         // "general" and skip the API call. Opinions DO get extraction since
         // "AI is dangerous" or "Trump is the best president" carry topical
-        // content worth labelling on the chip.
-        const topic = assessment.claimType === "opinion"
-          ? await extractTopicWithFallback(assessment.sessionId, assessment.claimText)
-          : "general";
+        // content worth labelling on the chip. Hate is also topical (the
+        // targeted group matters for analytics + Insights routing).
+        const topic = assessment.claimType === "profanity"
+          ? "general"
+          : await extractTopicWithFallback(assessment.sessionId, assessment.claimText, {
+              // Hate is sensitive; opinion is product signal and stays
+              // un-redacted on Sentry (matches the log line below).
+              sensitive: assessment.claimType === "hate"
+            });
 
         const softVerification = buildSoftVerification(assessment, { topic });
 
         await xAddJson(redis, STREAM_NAMES.verdictsCompleted, softVerification);
+        const outcome =
+          assessment.claimType === "opinion" ? "opinion-flagged"
+          : assessment.claimType === "hate" ? "hate-flagged"
+          : "profanity-flagged";
+        // Tier 4+: redact claimText in logs for sensitive types so the same
+        // privacy guarantee that applies to Sentry also applies to log
+        // aggregators (Render → external log providers). Opinion stays
+        // un-redacted because the topic + opinion text is product signal
+        // we want visible during dogfood.
+        const claimTextField = assessment.claimType === "opinion"
+          ? { claimText: assessment.claimText }
+          : redactClaimText(assessment.claimText);
         logger.info({
           sessionId: assessment.sessionId,
-          claimText: assessment.claimText,
+          ...claimTextField,
           verdict: softVerification.verdict,
           confidence: assessment.confidence,
           topic,
           verificationDurationMs: Date.now() - verificationStartedAtMs,
-          outcome: assessment.claimType === "opinion" ? "opinion-flagged" : "profanity-flagged"
+          outcome
         }, "Completed claim verification");
         return;
       }
@@ -643,9 +679,17 @@ async function bootstrap() {
         const message = createInterventionMessage(result);
         await xAddJson(redis, STREAM_NAMES.notificationsOutbound, message);
         await markCorrected(result.sessionId, result.claimText);
+        // Tier 4+: redact claimText in the success log too for sensitive
+        // verdicts (hate, profanity) so log aggregators don't see what Sentry
+        // doesn't. Opinion + factual corrections stay visible — those are
+        // product signal we want available for dogfood + debugging.
+        const isSensitive = result.verdict === "hate" || result.verdict === "profanity";
+        const claimTextField = isSensitive
+          ? redactClaimText(result.claimText)
+          : { claimText: result.claimText };
         logger.info({
           sessionId: result.sessionId,
-          claimText: result.claimText,
+          ...claimTextField,
           verdict: result.verdict,
           attributedTo: message.attributedTo,
           msSinceLast: rateLimit.sinceLastMs,
@@ -654,9 +698,14 @@ async function bootstrap() {
         }, "Published intervention notification");
       } catch (error) {
         logger.error({ err: error, sessionId: result.sessionId }, "Failed to publish intervention");
+        // Tier 4+: same sensitivity gate as the success log above.
+        const isSensitive = result.verdict === "hate" || result.verdict === "profanity";
+        const extra = isSensitive
+          ? { ...redactClaimText(result.claimText), verdict: result.verdict }
+          : { claimText: result.claimText, verdict: result.verdict };
         Sentry.captureException(error, {
           tags: { sessionId: result.sessionId },
-          extra: { claimText: result.claimText, verdict: result.verdict }
+          extra
         });
       }
     }

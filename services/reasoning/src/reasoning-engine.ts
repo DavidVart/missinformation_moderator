@@ -1,5 +1,6 @@
 import { PromptTemplate } from "@langchain/core/prompts";
 import { ChatOpenAI } from "@langchain/openai";
+import { createHash } from "node:crypto";
 import type { ClaimAssessment, ClaimVerificationResult, SourceCitation, TranscriptSegment } from "@project-veritas/contracts";
 import { claimAssessmentSchema, claimVerificationResultSchema, sourceCitationSchema } from "@project-veritas/contracts";
 import { v4 as uuidv4 } from "uuid";
@@ -20,11 +21,12 @@ const detectedClaimSchema = z.object({
   // The verifier consumer biases Tavily search to the last 30 days for
   // these so we don't fact-check a 2024 claim against 2019 cached pages.
   timeSensitive: z.boolean().default(false),
-  // Tier 4: distinguish factual assertions from opinions. Opinions skip
-  // Tavily/verifier and surface as a soft "this sounds like an opinion"
-  // flag instead of a red correction — avoids the false-positive feel
-  // when the user is sharing a personal view.
-  claimType: z.enum(["fact", "opinion"]).default("fact")
+  // Tier 4: distinguish factual assertions from opinions and hate speech.
+  // Opinions skip Tavily/verifier and surface as a soft "this sounds like an
+  // opinion" flag. Hate is dehumanizing language directed at a group and
+  // surfaces as a soft red prompt; the LLM only emits fact/opinion/hate
+  // (profanity is regex-detected upstream on raw segment text).
+  claimType: z.enum(["fact", "opinion", "hate"]).default("fact")
 });
 
 /**
@@ -216,23 +218,28 @@ export function detectProfanity(text: string): { found: boolean; word?: string }
 
 const SOFT_VERDICT_CORRECTIONS = {
   opinion: "That sounded like an opinion — backing it with evidence would make it more persuasive.",
-  profanity: "That's intense — can you back it up with evidence?"
+  profanity: "That's intense — can you back it up with evidence?",
+  hate: "That sounded like dehumanizing language directed at a group — please reconsider."
 } as const;
 
 /**
- * Build the synthetic ClaimVerificationResult for opinion / profanity
+ * Build the synthetic ClaimVerificationResult for opinion / profanity / hate
  * short-circuits in the verifier consumer. Pure function so the verdict
  * mapping, correction text, and schema invariants stay testable without
  * mocking Redis or the topic-extraction LLM. The consumer supplies the
- * topic (Tier 3 extraction for opinions, "general" for profanity) and an
- * optional `checkedAt` for deterministic tests.
+ * topic (Tier 3 extraction for opinion + hate, "general" for profanity) and
+ * an optional `checkedAt` for deterministic tests.
  */
 export function buildSoftVerification(
   assessment: ClaimAssessment,
   options: { topic: string; checkedAt?: string }
 ): ClaimVerificationResult {
-  if (assessment.claimType !== "opinion" && assessment.claimType !== "profanity") {
-    throw new Error(`buildSoftVerification: claimType must be opinion or profanity, got "${assessment.claimType}"`);
+  if (
+    assessment.claimType !== "opinion" &&
+    assessment.claimType !== "profanity" &&
+    assessment.claimType !== "hate"
+  ) {
+    throw new Error(`buildSoftVerification: claimType must be opinion, profanity, or hate, got "${assessment.claimType}"`);
   }
   const verdict = assessment.claimType;
   return claimVerificationResultSchema.parse({
@@ -250,6 +257,24 @@ export function buildSoftVerification(
     speakerRole: assessment.speakerRole ?? "unknown",
     topic: options.topic
   });
+}
+
+/**
+ * Privacy redaction for sensitive claim types (profanity, hate). Sentry is a
+ * third-party SaaS; storing raw dehumanizing utterances or profanity in error
+ * reports is a defamation/PII liability — every Sentry user with project
+ * access can read them. We replace the raw text with a deterministic SHA-256
+ * fingerprint plus a short preview (first 3 words + ellipsis) so on-call can
+ * still cluster and triage repeated incidents without seeing the full
+ * utterance. /cso flagged this as MEDIUM-severity (8/10 confidence) on the
+ * Tier 4+ design review.
+ */
+export function redactClaimText(text: string): { claimTextHash: string; claimTextPreview: string } {
+  const claimTextHash = createHash("sha256").update(text).digest("hex");
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const previewWords = words.slice(0, 3).join(" ");
+  const claimTextPreview = words.length > 3 ? `${previewWords}…` : previewWords;
+  return { claimTextHash, claimTextPreview };
 }
 
 function overlapCount(left: string[], right: string[]) {
@@ -517,6 +542,15 @@ export function createReasoningEngine(config: {
       `"that movie was great"). Opinions are still WORTH FLAGGING (the user might want to know they made a\n` +
       `subjective claim), so include them in the array — but mark them claimType="opinion" so the system\n` +
       `surfaces a soft prompt instead of a fact-check correction.\n` +
+      `Set claimType="hate" for dehumanizing language directed at a group — claims that deny a group's right\n` +
+      `to exist, frame them as subhuman, or call for their harm/elimination. Examples: "Communists don't\n` +
+      `deserve to live", "[ethnic group] are subhuman / vermin / animals", "[group] should all be killed",\n` +
+      `"[religion] adherents shouldn't be allowed to breathe". The KEY signal is dehumanization plus a\n` +
+      `target group, not strong political opinion. Be conservative: "Communism is wrong" is opinion, not\n` +
+      `hate. "I hate that policy" is opinion, not hate. "I hate [group]" is borderline — only mark hate\n` +
+      `when paired with dehumanizing/violent framing about the group's existence or worth. When uncertain,\n` +
+      `prefer opinion over hate (the system is calibrated for false-negative tolerance on hate; false\n` +
+      `positives on political speech are worse than missing a borderline call).\n` +
       `Skip pure rhetorical questions and hypotheticals entirely (don't return them at all).\n` +
       `If the claim is attributed to [SELF], apply stricter scrutiny on facts — only flag objectively verifiable\n` +
       `factual statements; for SELF, opinions and first-person anecdotes can be skipped entirely or marked as\n` +
@@ -586,10 +620,10 @@ export function createReasoningEngine(config: {
 
       const candidates = (result.claims ?? []).filter(
         (claim) =>
-          // Opinions surface as soft flags so they bypass the "isVerifiable"
-          // gate that's meant for facts. The verification consumer
-          // short-circuits opinions before they reach Tavily / the verifier.
-          (claim.isVerifiable || claim.claimType === "opinion") &&
+          // Opinions and hate surface as soft flags so they bypass the
+          // "isVerifiable" gate that's meant for facts. The verification
+          // consumer short-circuits opinion/hate before they reach Tavily.
+          (claim.isVerifiable || claim.claimType === "opinion" || claim.claimType === "hate") &&
           claim.claimText.trim().length > 0 &&
           !looksTruncated(claim.claimText) &&
           !isFragmentClaim(claim.claimText)
@@ -872,7 +906,13 @@ export function createTopicExtractor(config: {
   openAiModel?: string;
   timeoutMs?: number;
 }): TopicExtractor {
-  const timeoutMs = config.timeoutMs ?? 3000;
+  // Tier 4+: bumped 3000→5000ms after dogfood logs showed ~50% of topic calls
+  // timing out and falling back to "general". Root cause was gpt-4o-mini
+  // p95 latency variance, not langchain pool contention (the extractor
+  // already creates its own ChatOpenAI client at line ~881, so there's no
+  // shared connection pool with verifyClaim). 5s still bounds the worst
+  // case so a slow topic call never blocks a verdict reaching the user.
+  const timeoutMs = config.timeoutMs ?? 5000;
 
   if (!config.openAiApiKey) {
     return async () => "general";

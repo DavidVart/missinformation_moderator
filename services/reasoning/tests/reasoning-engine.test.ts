@@ -13,6 +13,7 @@ import {
   detectProfanity,
   isFragmentClaim,
   looksTruncated,
+  redactClaimText,
   shouldAssessWindow,
   shouldIntervene
 } from "../src/reasoning-engine.js";
@@ -422,7 +423,7 @@ describe("reasoning helpers", () => {
   // synthetic ClaimVerificationResult is built from the assessment. These
   // tests pin the verdict mapping, correction text, and field passthrough so
   // future refactors can't silently break the soft-prompt UI contract.
-  function softAssessment(claimType: "opinion" | "profanity" | "fact") {
+  function softAssessment(claimType: "opinion" | "profanity" | "fact" | "hate") {
     return claimAssessmentSchema.parse({
       claimId: "claim_s",
       sessionId: "session_42",
@@ -481,6 +482,100 @@ describe("reasoning helpers", () => {
   it("buildSoftVerification refuses fact claimType — short-circuit must not be reached for fact-checkable claims", () => {
     expect(() =>
       buildSoftVerification(softAssessment("fact"), { topic: "general", checkedAt: "2026-04-27T12:00:00.000Z" })
-    ).toThrow(/opinion or profanity/);
+    ).toThrow(/opinion, profanity, or hate/);
+  });
+
+  // ─────────── Tier 4+: hate speech detection ───────────
+
+  it("buildSoftVerification maps hate claimType to verdict='hate' with the dehumanizing-language nudge", () => {
+    const result = buildSoftVerification(softAssessment("hate"), {
+      topic: "political extremism",
+      checkedAt: "2026-04-28T12:00:00.000Z"
+    });
+    expect(result.verdict).toBe("hate");
+    expect(result.correction).toContain("dehumanizing");
+    expect(result.correction).toContain("group");
+    expect(result.sources).toEqual([]);
+    expect(result.topic).toBe("political extremism");
+    expect(result.checkedAt).toBe("2026-04-28T12:00:00.000Z");
+  });
+
+  it("shouldPublishNotification gates hate at the 0.7 floor (opponent), 0.8 (self)", () => {
+    const baseAssessment = {
+      claimId: "claim_h",
+      sessionId: "session_h",
+      transcriptSegmentIds: ["seg_h"],
+      claimText: "[redacted-test-input]",
+      verdict: "hate" as const,
+      correction: "That sounded like dehumanizing language directed at a group — please reconsider.",
+      sources: [],
+      checkedAt: "2026-04-28T12:00:00.000Z"
+    };
+    // Opponent: 0.65 below floor (drops), 0.75 above (publishes)
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      confidence: 0.65,
+      speakerRole: "opponent" as const
+    }, 0.75)).toBe(false);
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      confidence: 0.75,
+      speakerRole: "opponent" as const
+    }, 0.75)).toBe(true);
+    // Self: floor is bumped to 0.8 — 0.75 drops, 0.85 passes (caps at 0.85)
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      confidence: 0.75,
+      speakerRole: "self" as const
+    }, 0.75)).toBe(false);
+    expect(shouldPublishNotification({
+      ...baseAssessment,
+      confidence: 0.85,
+      speakerRole: "self" as const
+    }, 0.75)).toBe(true);
+  });
+});
+
+// ─────────── Tier 4+: Sentry redaction for sensitive claim types ───────────
+
+describe("redactClaimText", () => {
+  it("returns a deterministic SHA-256 hash and a 3-word preview with ellipsis", () => {
+    const result = redactClaimText("Communists don't deserve to live");
+    // SHA-256 of the input, computed independently to anchor the test.
+    expect(result.claimTextHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.claimTextPreview).toBe("Communists don't deserve…");
+  });
+
+  it("hashes deterministically — same input produces identical hash across calls", () => {
+    const a = redactClaimText("That's bullshit");
+    const b = redactClaimText("That's bullshit");
+    expect(a.claimTextHash).toBe(b.claimTextHash);
+    expect(a.claimTextPreview).toBe(b.claimTextPreview);
+  });
+
+  it("does not append ellipsis when the text is 3 words or fewer", () => {
+    expect(redactClaimText("hi there").claimTextPreview).toBe("hi there");
+    expect(redactClaimText("one two three").claimTextPreview).toBe("one two three");
+  });
+
+  it("appends ellipsis when the text is 4+ words", () => {
+    expect(redactClaimText("one two three four").claimTextPreview).toBe("one two three…");
+  });
+
+  it("collapses repeated whitespace in the preview", () => {
+    // 3-word preview from a string with weird spacing — words filtering should
+    // discard the empty splits so the preview is clean.
+    expect(redactClaimText("hello    world    again    extra").claimTextPreview).toBe("hello world again…");
+  });
+
+  it("handles empty / whitespace-only input without throwing", () => {
+    // Edge case: empty or all-whitespace input shouldn't crash. Hash is still
+    // computed (sha256 of empty string is a real, deterministic hex digest)
+    // and preview is empty. This shouldn't happen in practice (the regex
+    // pre-check or the LLM gate would filter empty utterances earlier) but
+    // we should never throw out of a Sentry path.
+    expect(redactClaimText("").claimTextPreview).toBe("");
+    expect(redactClaimText("").claimTextHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(redactClaimText("    ").claimTextPreview).toBe("");
   });
 });

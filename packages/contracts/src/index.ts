@@ -9,19 +9,28 @@ export const sessionModeSchema = z.enum([
 
 export type SessionMode = z.infer<typeof sessionModeSchema>;
 
-export const verdictSchema = z.enum(["true", "false", "misleading", "unverified", "opinion", "profanity"]);
+export const verdictSchema = z.enum(["true", "false", "misleading", "unverified", "opinion", "profanity", "hate"]);
 export const leaderboardVisibilitySchema = z.enum(["private", "public"]);
 
 /**
- * Tier 4: distinguish factual assertions from opinions and from intense /
- * profane language at detection time. Opinions and profanity both skip the
- * Tavily/verifier path and surface as soft prompts in the UI rather than red
- * corrections — opinions get a "back it with evidence" nudge, profanity gets
- * a "that's intense, can you back it up?" nudge. Profanity is detected by
- * a regex on the raw segment text (not by the LLM) so the LLM only ever
- * emits "fact" or "opinion".
+ * Tier 4: distinguish factual assertions from opinions, profanity, and
+ * dehumanizing/hate language at detection time. Opinions, profanity, and hate
+ * all skip the Tavily/verifier path and surface as soft prompts in the UI
+ * rather than red corrections.
+ *
+ * - opinion: "back it with evidence" nudge for value judgments.
+ * - profanity: "that's intense, can you back it up?" nudge. Detected by a
+ *   regex on raw segment text (not by the LLM) so the LLM only ever emits
+ *   fact / opinion / hate.
+ * - hate: "that's dehumanizing language directed at a group" nudge for
+ *   claims like "[group] don't deserve to live" / "[group] are subhuman".
+ *   LLM-classified — distinguishing hate from opinion requires reasoning
+ *   about subject (group) plus dehumanizing/violent verb, not specific words.
+ *   Confidence floor (0.7) is higher than opinion's (0.6) because false
+ *   positives on political speech ("communism is wrong" misclassified as
+ *   "communists deserve harm") are worse than opinion misfires.
  */
-export const claimTypeSchema = z.enum(["fact", "opinion", "profanity"]);
+export const claimTypeSchema = z.enum(["fact", "opinion", "profanity", "hate"]);
 export type ClaimType = z.infer<typeof claimTypeSchema>;
 
 /** V2 Debate Mode: which speaker produced a given audio chunk / segment. */

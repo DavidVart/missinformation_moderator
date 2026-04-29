@@ -14,6 +14,12 @@ import { v4 as uuidv4 } from "uuid";
  * confidence to gate on, just the LLM's certainty that the utterance was
  * subjective. The asymmetric self-bump still applies so opponent opinions
  * surface a touch more readily than self ones.
+ *
+ * Tier 4+: hate gets a HIGHER floor (0.7) than opinion because false positives
+ * on political speech ("communism is wrong" misclassified as hate) are much
+ * worse than equivalent opinion misfires — they imply a moral judgment about
+ * the user's views, not just "back this with evidence". The /cso review
+ * (MEDIUM, 7/10) flagged the missing floor as a must-fix before shipping.
  */
 export function shouldPublishNotification(result: ClaimVerificationResult, baseThreshold: number) {
   if (result.verdict === "opinion") {
@@ -21,6 +27,16 @@ export function shouldPublishNotification(result: ClaimVerificationResult, baseT
     const threshold = result.speakerRole === "self"
       ? Math.min(0.85, opinionFloor + 0.10)
       : opinionFloor;
+    return result.confidence >= threshold;
+  }
+  if (result.verdict === "hate") {
+    // Tier 4+: hate floor is 0.7 (higher than opinion's 0.6). Self-bump is
+    // capped at 0.85 to mirror opinion's pattern — we never want to flag a
+    // user's own utterance as hate at less than 80% confidence.
+    const hateFloor = 0.7;
+    const threshold = result.speakerRole === "self"
+      ? Math.min(0.85, hateFloor + 0.10)
+      : hateFloor;
     return result.confidence >= threshold;
   }
   if (result.verdict === "profanity") {
