@@ -21,6 +21,21 @@
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* P4-C note: smoothness is opted-in per-call via scrollTo({ behavior:
+     "smooth" }) in the autoscroll-when-pinned effect. We deliberately do
+     NOT set CSS `scroll-behavior: smooth` here — that would slow ALL
+     programmatic scrolls in the container (anchor jumps, scrollIntoView
+     calls elsewhere) which we don't want. */
+}
+
+/* P4-C: when the floating correction toast is visible, pad the scroll area
+   so the latest transcript bubble can scroll ABOVE the toast instead of
+   being permanently hidden underneath it. Padding equals the compact
+   toast height (~3.5rem) plus a small gap. Combined with the
+   isPinnedToBottom autoscroll effect, the user sees their newest content
+   stay in view as the toast appears. */
+.app-scroll-area.has-floating-toast {
+  padding-bottom: 4.5rem;
 }
 
 /* Listen tab idle state has a fixed hero layout — no content to scroll to,
@@ -3017,6 +3032,180 @@
     transform: translateX(-50%);
     width: 28rem;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   P4-C: COMPACT VARIANTS — Live "ping" overlays for dogfood
+   ═══════════════════════════════════════════════════════════════
+   Single-row layout for both the floating toast and the inline strip.
+   The original multi-line layout (claim text + correction body + action
+   row with confidence pill and Speak button) covered ~25% of viewport
+   and hid the latest transcript bubble. Compact variants drop everything
+   except: icon + verdict label + truncated correction text + dismiss-X.
+   The dropped affordances (claim text, sources, Speak) all remain
+   available on the inline transcript-bubble correction chip.
+   Footprint: toast ~140px → ~48px. Strip ~80px → ~40px. */
+
+.correction-toast--compact {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: var(--rt-radius-xl);
+  /* Override the original .correction-toast's grid + larger padding. The
+     border-radius drop on the bottom-right corner from `0` to xl is also
+     intentional — the compact toast is a card, not an edge-anchored
+     drawer like the verbose original. */
+}
+
+.correction-toast--compact .correction-toast__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+  color: var(--rt-correction);
+}
+
+.correction-toast--compact .correction-toast__icon ion-icon {
+  font-size: 1.1rem;
+}
+
+.correction-toast--compact .correction-toast__line {
+  flex: 1 1 auto;
+  min-width: 0; /* enables ellipsis on the body span */
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.correction-toast--compact .correction-toast__label {
+  flex-shrink: 0;
+  font-family: var(--rt-font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rt-correction);
+}
+
+.correction-toast--compact .correction-toast__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--rt-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Variant-specific label tints — keep parity with the ::before stripe
+   color from the existing chip-variant blocks above. */
+.correction-toast--compact.is-opinion .correction-toast__icon,
+.correction-toast--compact.is-opinion .correction-toast__label {
+  color: var(--rt-opinion);
+}
+
+.correction-toast--compact.is-profanity .correction-toast__icon,
+.correction-toast--compact.is-profanity .correction-toast__label {
+  color: var(--rt-profanity);
+}
+
+.correction-toast--compact.is-hate .correction-toast__icon,
+.correction-toast--compact.is-hate .correction-toast__label {
+  color: var(--rt-hate);
+}
+
+.correction-toast--compact .correction-toast__dismiss {
+  flex-shrink: 0;
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+/* Hide the original ::before pseudo-element (the verbose toast's left
+   stripe). The compact variant's left edge cue comes from the variant
+   border (is-hate gets a saturated red 1.5px border per P4-A). */
+.correction-toast--compact::before {
+  display: none;
+}
+
+.correction-toast--compact .correction-toast__progress {
+  /* Bottom progress bar still useful as a dismiss countdown cue,
+     but thinner so it doesn't dominate a 48px-tall toast. */
+  height: 1.5px;
+}
+
+/* Compact strip — same single-row idea, but in-flow (not fixed). */
+.intervention-strip--compact {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.85rem;
+  margin: 0.5rem 0;
+  border-radius: var(--rt-radius-md, 0.85rem);
+  /* Override the original strip's larger padding + flex justify-between. */
+}
+
+.intervention-strip--compact .intervention-strip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex-shrink: 0;
+  color: var(--rt-correction);
+}
+
+.intervention-strip--compact .intervention-strip__icon ion-icon {
+  font-size: 1rem;
+}
+
+.intervention-strip--compact .intervention-strip__line {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.intervention-strip--compact .intervention-strip__label {
+  flex-shrink: 0;
+  font-family: var(--rt-font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rt-correction);
+}
+
+.intervention-strip--compact .intervention-strip__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--rt-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.intervention-strip--compact.is-opinion .intervention-strip__icon,
+.intervention-strip--compact.is-opinion .intervention-strip__label {
+  color: var(--rt-opinion);
+}
+
+.intervention-strip--compact.is-profanity .intervention-strip__icon,
+.intervention-strip--compact.is-profanity .intervention-strip__label {
+  color: var(--rt-profanity);
+}
+
+.intervention-strip--compact.is-hate .intervention-strip__icon,
+.intervention-strip--compact.is-hate .intervention-strip__label {
+  color: var(--rt-hate);
 }
 
 /* ═══════════════════════════════════════════════════════════════

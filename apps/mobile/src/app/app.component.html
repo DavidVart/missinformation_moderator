@@ -1,7 +1,11 @@
 <ion-app>
   <div class="app-shell">
 
-    <div class="app-scroll-area">
+    <div
+      class="app-scroll-area"
+      [class.has-floating-toast]="showCorrectionOverlay()"
+      #scrollArea
+      (scroll)="onScrollAreaScroll($event)">
       <!-- Context-aware header: Live tab shows kicker + title, other tabs show brand -->
       @if (activeTab() === 'live') {
         <header class="topbar topbar--contextual">
@@ -198,45 +202,47 @@
               }
 
               @if (latestIntervention() && !showCorrectionOverlay()) {
+                <!--
+                  P4-C: dogfood-instrumentation strip — single horizontal row.
+                  Renders when the toast is dismissed. Same shape as the
+                  compact toast: icon + label + truncated correction. Drops
+                  the kicker preamble ("You said — "), the multi-line copy,
+                  the confidence pill, source pill, and Speak button — those
+                  live on the inline transcript-bubble correction chip. Strip
+                  is now a thin live "ping" affordance, ~40px tall vs ~80px.
+                -->
                 <section
-                  class="intervention-strip"
+                  class="intervention-strip intervention-strip--compact"
                   [class.is-self]="latestIntervention()?.attributedTo === 'self'"
                   [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'"
                   [class.is-opinion]="latestIntervention()?.verdict === 'opinion'"
                   [class.is-profanity]="latestIntervention()?.verdict === 'profanity'"
                   [class.is-hate]="latestIntervention()?.verdict === 'hate'">
-                  <div>
-                    <p class="intervention-kicker">
-                      @if (latestIntervention()?.attributedTo === 'self') {
-                        You said —
-                      } @else if (latestIntervention()?.attributedTo === 'opponent') {
-                        Opponent said —
-                      }
+                  <div class="intervention-strip__icon" aria-hidden="true">
+                    @if (latestIntervention()?.verdict === 'opinion') {
+                      <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+                    } @else if (latestIntervention()?.verdict === 'profanity') {
+                      <ion-icon name="flame-outline"></ion-icon>
+                    } @else if (latestIntervention()?.verdict === 'hate') {
+                      <ion-icon name="alert-circle-outline"></ion-icon>
+                    } @else {
+                      <ion-icon name="warning-outline"></ion-icon>
+                    }
+                  </div>
+                  <p class="intervention-strip__line">
+                    <span class="intervention-strip__label">
                       @if (latestIntervention()?.verdict === 'opinion') {
                         Opinion
                       } @else if (latestIntervention()?.verdict === 'profanity') {
                         Strong language
                       } @else if (latestIntervention()?.verdict === 'hate') {
-                        Dehumanizing language
+                        Dehumanizing
                       } @else {
                         Correction
                       }
-                    </p>
-                    <p class="intervention-copy">{{ latestIntervention().correction }}</p>
-                    <div class="intervention-meta">
-                      @if (!isSoftVerdict(latestIntervention()?.verdict)) {
-                        <span class="confidence-pill">{{ correctionConfidenceLabel() }}</span>
-                        @if (latestSource(); as source) {
-                          <button class="source-pill" type="button" (click)="openLatestSource()">
-                            {{ sourceHost(source.url) }}
-                          </button>
-                        }
-                      }
-                    </div>
-                  </div>
-                  @if (!isSoftVerdict(latestIntervention()?.verdict)) {
-                    <button class="text-link-button" type="button" (click)="speakLatestIntervention()">Speak</button>
-                  }
+                    </span>
+                    <span class="intervention-strip__body">{{ latestIntervention()?.correction }}</span>
+                  </p>
                 </section>
               }
 
@@ -1160,57 +1166,50 @@
       <!-- ═══════════════════ CORRECTION TOAST ═══════════════════ -->
       @if (showCorrectionOverlay() && latestIntervention(); as intervention) {
         <div
-          class="correction-toast"
+          class="correction-toast correction-toast--compact"
           [class.is-self]="intervention.attributedTo === 'self'"
           [class.is-opponent]="intervention.attributedTo === 'opponent'"
           [class.is-opinion]="intervention.verdict === 'opinion'"
           [class.is-profanity]="intervention.verdict === 'profanity'"
           [class.is-hate]="intervention.verdict === 'hate'">
-          <div class="correction-toast__progress" aria-hidden="true"></div>
-          <div class="correction-toast__header">
-            <div class="correction-toast__badge">
-              @if (intervention.verdict === 'opinion') {
-                <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
-                <span>Sounded like an opinion</span>
-              } @else if (intervention.verdict === 'profanity') {
-                <ion-icon name="flame-outline"></ion-icon>
-                <span>Strong language</span>
-              } @else if (intervention.verdict === 'hate') {
-                <ion-icon name="alert-circle-outline"></ion-icon>
-                <span>Dehumanizing language</span>
-              } @else {
-                <ion-icon name="warning-outline"></ion-icon>
-                <span>
-                  @if (intervention.attributedTo === 'self') {
-                    You were corrected
-                  } @else if (intervention.attributedTo === 'opponent') {
-                    Opponent corrected
-                  } @else {
-                    Correction
-                  }
-                </span>
-              }
-            </div>
-            <button class="correction-toast__dismiss" type="button" (click)="closeCorrectionOverlay()">
-              <ion-icon name="close-outline"></ion-icon>
-            </button>
+          <!--
+            P4-C: dogfood-instrumentation toast — single horizontal row.
+            Prior version stacked badge/claim/correction/actions vertically
+            (~140px tall, covered ~25% of viewport, hid the latest transcript
+            bubble). Compact version is ~48px: icon + verdict label + the
+            correction text (truncated, ellipsis on overflow) + dismiss-X.
+            The full claim text + sources + Speak button still live on the
+            inline transcript-bubble correction chip, so no information is
+            lost — only the duplicate live overlay shrinks to a thin "ping".
+          -->
+          <div class="correction-toast__icon" aria-hidden="true">
+            @if (intervention.verdict === 'opinion') {
+              <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
+            } @else if (intervention.verdict === 'profanity') {
+              <ion-icon name="flame-outline"></ion-icon>
+            } @else if (intervention.verdict === 'hate') {
+              <ion-icon name="alert-circle-outline"></ion-icon>
+            } @else {
+              <ion-icon name="warning-outline"></ion-icon>
+            }
           </div>
-          <p class="correction-toast__claim">"{{ intervention.claimText }}"</p>
-          <p class="correction-toast__correction">{{ intervention.correction }}</p>
-          @if (!isSoftVerdict(intervention.verdict)) {
-            <div class="correction-toast__actions">
-              <span class="confidence-pill confidence-pill--warm">{{ correctionConfidenceLabel() }}</span>
-              @if (intervention.sources[0]) {
-                <button class="source-pill source-pill--warm" type="button" (click)="openLatestSource()">
-                  {{ sourceHost(intervention.sources[0].url) }}
-                </button>
+          <p class="correction-toast__line">
+            <span class="correction-toast__label">
+              @if (intervention.verdict === 'opinion') {
+                Opinion
+              } @else if (intervention.verdict === 'profanity') {
+                Strong language
+              } @else if (intervention.verdict === 'hate') {
+                Dehumanizing
+              } @else {
+                Correction
               }
-              <button class="correction-toast__speak" type="button" (click)="speakLatestIntervention()">
-                <ion-icon name="volume-high-outline"></ion-icon>
-                <span>Speak</span>
-              </button>
-            </div>
-          }
+            </span>
+            <span class="correction-toast__body">{{ intervention.correction }}</span>
+          </p>
+          <button class="correction-toast__dismiss" type="button" (click)="closeCorrectionOverlay()" aria-label="Dismiss">
+            <ion-icon name="close-outline"></ion-icon>
+          </button>
         </div>
       }
     </div>

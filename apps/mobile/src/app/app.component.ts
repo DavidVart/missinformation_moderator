@@ -1,5 +1,5 @@
 import { CommonModule } from "@angular/common";
-import { ChangeDetectionStrategy, Component, OnDestroy, computed, effect, inject, signal } from "@angular/core";
+import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, computed, effect, inject, signal, untracked, viewChild } from "@angular/core";
 import { FormsModule } from "@angular/forms";
 import { IonApp, IonIcon, IonSpinner } from "@ionic/angular/standalone";
 import { addIcons } from "ionicons";
@@ -170,6 +170,14 @@ export class AppComponent implements OnDestroy {
   protected readonly sessionId = signal<string | null>(null);
   protected readonly transcriptSegments = signal<TranscriptSegment[]>([]);
   protected readonly interventions = signal<InterventionMessage[]>([]);
+  // P4-C: ViewChild on the scroll container so we can autoscroll only when
+  // the user is "pinned" to the bottom. The template binds (scroll) to
+  // onScrollAreaScroll which updates `isPinnedToBottom`. The autoscroll
+  // effect below reads the signal and scrolls only when pinned — never
+  // yanks a user who has scrolled up to review earlier content.
+  private readonly scrollArea = viewChild<ElementRef<HTMLElement>>("scrollArea");
+  private readonly isPinnedToBottom = signal(true);
+  private static readonly SCROLL_PINNED_THRESHOLD_PX = 80;
   protected readonly statusMessage = signal("Ready to moderate");
   protected readonly micError = signal<string | null>(null);
   protected readonly transportStatus = signal<"connecting" | "connected" | "offline">("connecting");
@@ -858,6 +866,40 @@ export class AppComponent implements OnDestroy {
       }
     });
 
+    // P4-C: autoscroll-when-pinned. Watch transcript + intervention growth.
+    // If the user is pinned to the bottom (last `SCROLL_PINNED_THRESHOLD_PX`
+    // of the scroll range), keep them there as new content arrives. If they
+    // have scrolled up to review earlier content, do nothing — yanking a
+    // reading user back to the bottom is hostile.
+    //
+    // The pinned-state read is wrapped in untracked() on purpose: we want
+    // the effect to re-run when transcript/intervention/overlay signals
+    // change (those are the growth signals), but NOT when isPinnedToBottom
+    // flips. Otherwise scrolling back to bottom would re-fire the effect
+    // and cause a redundant scrollTo (micro-jolt). isPinnedToBottom is
+    // just a gate, not a trigger.
+    effect(() => {
+      // Subscribe to the growth signals so the effect re-runs when they
+      // change. Counts only — full arrays not needed in scope.
+      const segmentsLength = this.transcriptSegments().length;
+      const interventionsLength = this.interventions().length;
+      // Toast visibility shifts the scrollable bottom (via has-floating-toast
+      // padding) so we want to re-evaluate when it appears/dismisses.
+      this.showCorrectionOverlay();
+      void segmentsLength;
+      void interventionsLength;
+
+      if (!untracked(() => this.isPinnedToBottom())) return;
+      // requestAnimationFrame so we scroll AFTER the new content has been
+      // laid out. Without it, scrollHeight is read before the new bubble's
+      // dimensions are committed and we land just short.
+      const el = this.scrollArea()?.nativeElement;
+      if (!el) return;
+      requestAnimationFrame(() => {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      });
+    });
+
     this.subscriptions.add(
       this.socketService.connectionState$.subscribe((state) => {
         this.transportStatus.set(state);
@@ -980,6 +1022,20 @@ export class AppComponent implements OnDestroy {
 
   protected closeCorrectionOverlay() {
     this.isCorrectionOpen.set(false);
+  }
+
+  // P4-C: bound to (scroll) on .app-scroll-area. Updates the
+  // `isPinnedToBottom` signal which gates the autoscroll effect. Cheap —
+  // just three numeric reads and one comparison per scroll event. We don't
+  // throttle because the read is from the layout side (no DOM mutation),
+  // and Angular's signal write is a no-op when the value doesn't change.
+  protected onScrollAreaScroll(event: Event) {
+    const el = event.target as HTMLElement;
+    const distanceFromBottom = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    const pinned = distanceFromBottom <= AppComponent.SCROLL_PINNED_THRESHOLD_PX;
+    if (pinned !== this.isPinnedToBottom()) {
+      this.isPinnedToBottom.set(pinned);
+    }
   }
 
   protected async toggleMonitoring() {
