@@ -4,6 +4,7 @@ import { claimAssessmentSchema } from "@project-veritas/contracts";
 
 import { shouldPublishNotification } from "../src/notification.js";
 import {
+  buildDetectionFailureSentryExtra,
   buildRollingWindow,
   buildSoftVerification,
   buildTavilyRequestBody,
@@ -566,6 +567,53 @@ describe("redactClaimText", () => {
     // 3-word preview from a string with weird spacing — words filtering should
     // discard the empty splits so the preview is clean.
     expect(redactClaimText("hello    world    again    extra").claimTextPreview).toBe("hello world again…");
+  });
+
+  it("buildDetectionFailureSentryExtra hashes both segment AND windowSignature, no raw user content escapes", () => {
+    // The detection-phase catch in services/reasoning/src/index.ts fires when
+    // gpt-4o-mini fails before classification — no claimType to gate on, so
+    // unconditional redaction. windowSignature is NOT a hash — it's the
+    // lowercased whitespace-normalized join of all rolling-window segments
+    // (the user's full recent speech). Both segmentText and windowSignature
+    // are redacted; windowChars (length) survives for triage signal, and the
+    // 3-word preview survives for the latest-segment only.
+    const segmentText = "Communists don't deserve to live and that's that";
+    const windowSignature = "earlier filler and now communists don't deserve to live and that's that";
+    const extra = buildDetectionFailureSentryExtra(segmentText, windowSignature);
+
+    // windowSignature itself is hashed; the raw form does not appear.
+    expect(extra.windowSignatureHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(extra.windowChars).toBe(windowSignature.length);
+    expect(extra.claimTextHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(extra.claimTextPreview).toBe("Communists don't deserve…");
+
+    // No raw text under any of the legacy or alternate keys the prior
+    // un-redacted version used.
+    expect((extra as Record<string, unknown>).segmentText).toBeUndefined();
+    expect((extra as Record<string, unknown>).text).toBeUndefined();
+    expect((extra as Record<string, unknown>).claimText).toBeUndefined();
+    expect((extra as Record<string, unknown>).windowSignature).toBeUndefined();
+
+    // Defense-in-depth: the literal raw segment text and the literal raw
+    // windowSignature must not appear as a value under any key, no matter
+    // what we name it.
+    for (const value of Object.values(extra)) {
+      if (typeof value !== "string") continue;
+      expect(value.includes(segmentText)).toBe(false);
+      expect(value.includes(windowSignature)).toBe(false);
+    }
+  });
+
+  it("buildDetectionFailureSentryExtra hashes the windowSignature deterministically across calls", () => {
+    // Sentry uses identical extras to cluster repeat failures. Hash must be
+    // stable for the same input — this is the point of using SHA-256 over a
+    // random opaque ID.
+    const a = buildDetectionFailureSentryExtra("seg", "the rolling window text");
+    const b = buildDetectionFailureSentryExtra("seg", "the rolling window text");
+    expect(a.windowSignatureHash).toBe(b.windowSignatureHash);
+    // Different windows → different hashes (sanity, no collision in trivial case).
+    const c = buildDetectionFailureSentryExtra("seg", "a different window");
+    expect(c.windowSignatureHash).not.toBe(a.windowSignatureHash);
   });
 
   it("handles empty / whitespace-only input without throwing", () => {

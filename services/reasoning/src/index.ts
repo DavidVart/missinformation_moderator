@@ -24,6 +24,7 @@ import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 
 import {
+  buildDetectionFailureSentryExtra,
   buildRollingWindow,
   buildSoftVerification,
   buildWindowSignature,
@@ -421,10 +422,16 @@ async function bootstrap() {
       try {
         assessments = await reasoningEngine.assessWindow(segment.sessionId, rollingWindow);
       } catch (error) {
+        // Tier 4+ follow-up: redact ALL user-content fields before they reach
+        // Sentry. The LLM call ITSELF failed, so we have no claimType to gate
+        // on — a hate/profanity utterance could be in the segment OR in any
+        // of the prior 4 segments that make up windowSignature. The helper
+        // hashes both, keeps windowChars for length-based triage, and a
+        // 3-word preview of the latest segment for clusterability.
         logger.error({ err: error, sessionId: segment.sessionId, seq: segment.seq }, "Claim detection failed");
         Sentry.captureException(error, {
           tags: { phase: "detection", sessionId: segment.sessionId },
-          extra: { windowSignature, segmentText: segment.text }
+          extra: buildDetectionFailureSentryExtra(segment.text, windowSignature)
         });
         return;
       }

@@ -277,6 +277,43 @@ export function redactClaimText(text: string): { claimTextHash: string; claimTex
   return { claimTextHash, claimTextPreview };
 }
 
+/**
+ * Tier 4+ follow-up: assembles the Sentry `extra` payload for the
+ * detection-phase catch in services/reasoning/src/index.ts. Used when the
+ * gpt-4o-mini detection LLM call itself fails — at that point we have no
+ * claimType to gate redaction on, so we redact unconditionally.
+ *
+ * Two pieces of user content reach this site: (1) the latest segment's text,
+ * and (2) the rolling-window signature, which is a lowercased whitespace-
+ * normalized concatenation of ALL segments in the window — i.e. the user's
+ * full recent speech, NOT a hash. Both get hashed before they leave the
+ * service. We keep `windowChars` (signature length) for debugging — knowing
+ * a failure happened on a 600-char window is useful triage signal — and the
+ * latest-segment preview for clusterability of the failing utterance. No
+ * preview for the window itself because "first 3 words of a multi-segment
+ * concatenation" is misleading (it's mostly the OLDEST segment, not what
+ * triggered the failure).
+ *
+ * Extracted so we can unit-test the "no raw user content reaches Sentry"
+ * contract without mocking the Redis consumer.
+ */
+export function buildDetectionFailureSentryExtra(
+  segmentText: string,
+  windowSignature: string
+): {
+  windowSignatureHash: string;
+  windowChars: number;
+  claimTextHash: string;
+  claimTextPreview: string;
+} {
+  const windowSignatureHash = createHash("sha256").update(windowSignature).digest("hex");
+  return {
+    windowSignatureHash,
+    windowChars: windowSignature.length,
+    ...redactClaimText(segmentText)
+  };
+}
+
 function overlapCount(left: string[], right: string[]) {
   const rightSet = new Set(right);
   return left.reduce((count, token) => count + (rightSet.has(token) ? 1 : 0), 0);
