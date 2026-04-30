@@ -53,11 +53,11 @@
   --rt-profanity: #c25a3a;
   --rt-profanity-soft: rgba(194, 90, 58, 0.25);
 
-  /* ── Opinion (Tier 4): amber. Token extracts the prior literal #b8862a so
-     opinion now follows the same `var(--rt-{verdict})` foreground pattern as
-     profanity / hate / verified. Adding a new chip variant going forward = one
-     token block here + one .is-{verdict} class in app.component.scss. ── */
-  --rt-opinion: #b8862a;
+  /* ── Opinion (Tier 4): amber. Replaces the prior literal so opinion now
+     follows the same `var(--rt-{verdict})` foreground pattern as profanity /
+     hate / verified. Adding a new chip variant going forward = one token
+     block here + one .is-{verdict} class in app.component.scss. ── */
+  --rt-opinion: #c9a82a;
   --rt-opinion-soft: rgba(248, 232, 198, 0.55);
 
   /* ── Hate (Tier 4+): saturated red. Distinct from amber opinion (subjective
