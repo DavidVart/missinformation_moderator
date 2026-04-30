@@ -3113,12 +3113,12 @@
    "you got it wrong" alarm. */
 
 .intervention-strip.is-opinion {
-  border-left-color: var(--rt-secondary, #b8862a);
+  border-left-color: var(--rt-opinion);
   background: rgba(248, 232, 198, 0.45);
 }
 
 .intervention-strip.is-opinion .intervention-kicker {
-  color: var(--rt-secondary, #b8862a);
+  color: var(--rt-opinion);
 }
 
 .correction-toast.is-opinion {
@@ -3127,19 +3127,19 @@
 }
 
 .correction-toast.is-opinion::before {
-  background: var(--rt-secondary, #b8862a);
+  background: var(--rt-opinion);
 }
 
 .correction-toast.is-opinion .correction-toast__badge {
-  color: var(--rt-secondary, #b8862a);
+  color: var(--rt-opinion);
 }
 
 .correction-toast.is-opinion .correction-toast__badge ion-icon {
-  color: var(--rt-secondary, #b8862a);
+  color: var(--rt-opinion);
 }
 
 .correction-toast.is-opinion .correction-toast__progress {
-  background: var(--rt-secondary, #b8862a);
+  background: var(--rt-opinion);
 }
 
 /* Tier 4 (2/3): profanity variant for the strip + floating toast. */
@@ -3172,6 +3172,43 @@
 
 .correction-toast.is-profanity .correction-toast__progress {
   background: var(--rt-profanity);
+}
+
+/* Tier 4+: hate variant for the strip + floating toast. Visually heavier
+   than opinion or profanity — saturated red foreground, full-color border on
+   the toast (vs profanity's soft border), bolder badge text. The user should
+   register this as a different severity tier at a glance, not just a
+   different hue of the same soft prompt. */
+
+.intervention-strip.is-hate {
+  border-left-color: var(--rt-hate);
+  background: rgba(252, 224, 226, 0.55);
+}
+
+.intervention-strip.is-hate .intervention-kicker {
+  color: var(--rt-hate);
+}
+
+.correction-toast.is-hate {
+  background: linear-gradient(180deg, rgba(252, 224, 226, 0.96) 0%, rgba(245, 198, 200, 0.92) 100%);
+  border: 1.5px solid var(--rt-hate);
+}
+
+.correction-toast.is-hate::before {
+  background: var(--rt-hate);
+}
+
+.correction-toast.is-hate .correction-toast__badge {
+  color: var(--rt-hate);
+  font-weight: 700;
+}
+
+.correction-toast.is-hate .correction-toast__badge ion-icon {
+  color: var(--rt-hate);
+}
+
+.correction-toast.is-hate .correction-toast__progress {
+  background: var(--rt-hate);
 }
 
 /* Post-session attribution modal */
@@ -3430,12 +3467,12 @@
    matches the soft amber treatment used by the floating toast and
    intervention-strip so opinions look the same wherever they appear. */
 .transcript-bubble__correction.is-opinion {
-  background: rgba(248, 232, 198, 0.55);
-  color: var(--rt-secondary, #b8862a);
+  background: var(--rt-opinion-soft);
+  color: var(--rt-opinion);
 }
 
 .transcript-bubble__correction.is-opinion ion-icon {
-  color: var(--rt-secondary, #b8862a);
+  color: var(--rt-opinion);
 }
 
 /* Tier 4 (2/3): profanity variant. Coral/orange to differentiate from
@@ -3448,6 +3485,18 @@
 
 .transcript-bubble__correction.is-profanity ion-icon {
   color: var(--rt-profanity);
+}
+
+/* Tier 4+: hate variant for inline-near-bubble correction chips. Bolder
+   weight than opinion/profanity to read as more severe at a glance. */
+.transcript-bubble__correction.is-hate {
+  background: var(--rt-hate-soft);
+  color: var(--rt-hate);
+  font-weight: 600;
+}
+
+.transcript-bubble__correction.is-hate ion-icon {
+  color: var(--rt-hate);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -4173,12 +4222,12 @@
 }
 
 .transcript-fold__correction.is-opinion {
-  background: rgba(248, 232, 198, 0.55);
-  color: var(--rt-secondary, #b8862a);
+  background: var(--rt-opinion-soft);
+  color: var(--rt-opinion);
 }
 
 .transcript-fold__correction.is-opinion ion-icon {
-  color: var(--rt-secondary, #b8862a);
+  color: var(--rt-opinion);
 }
 
 .transcript-fold__correction.is-profanity {
@@ -4188,6 +4237,16 @@
 
 .transcript-fold__correction.is-profanity ion-icon {
   color: var(--rt-profanity);
+}
+
+.transcript-fold__correction.is-hate {
+  background: var(--rt-hate-soft);
+  color: var(--rt-hate);
+  font-weight: 600;
+}
+
+.transcript-fold__correction.is-hate ion-icon {
+  color: var(--rt-hate);
 }
 
 /* History cards — clickable now. */

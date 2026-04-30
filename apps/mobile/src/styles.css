@@ -53,6 +53,21 @@
   --rt-profanity: #c25a3a;
   --rt-profanity-soft: rgba(194, 90, 58, 0.25);
 
+  /* ── Opinion (Tier 4): amber. Token extracts the prior literal #b8862a so
+     opinion now follows the same `var(--rt-{verdict})` foreground pattern as
+     profanity / hate / verified. Adding a new chip variant going forward = one
+     token block here + one .is-{verdict} class in app.component.scss. ── */
+  --rt-opinion: #b8862a;
+  --rt-opinion-soft: rgba(248, 232, 198, 0.55);
+
+  /* ── Hate (Tier 4+): saturated red. Distinct from amber opinion (subjective
+     view), coral profanity (intense language), and terracotta correction
+     (factual error). Visual weight should read as more serious than the other
+     soft variants — dehumanizing language directed at a group is a different
+     severity tier than "back this with evidence" or "watch the language." ── */
+  --rt-hate: #b91c2c;
+  --rt-hate-soft: rgba(185, 28, 44, 0.18);
+
   /* ── Topic palette (stacked bar segments) ──
    * Tier 3: 8-color palette since topics are now free-form strings (not a
    * 10-value enum). The mobile component hashes each slug into one of these

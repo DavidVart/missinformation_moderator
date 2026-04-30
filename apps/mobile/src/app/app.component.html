@@ -169,11 +169,14 @@
                         <div
                           class="transcript-bubble__correction"
                           [class.is-opinion]="correction.verdict === 'opinion'"
-                          [class.is-profanity]="correction.verdict === 'profanity'">
+                          [class.is-profanity]="correction.verdict === 'profanity'"
+                          [class.is-hate]="correction.verdict === 'hate'">
                           @if (correction.verdict === 'opinion') {
                             <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
                           } @else if (correction.verdict === 'profanity') {
                             <ion-icon name="flame-outline"></ion-icon>
+                          } @else if (correction.verdict === 'hate') {
+                            <ion-icon name="alert-circle-outline"></ion-icon>
                           } @else {
                             <ion-icon name="warning-outline"></ion-icon>
                           }
@@ -200,7 +203,8 @@
                   [class.is-self]="latestIntervention()?.attributedTo === 'self'"
                   [class.is-opponent]="latestIntervention()?.attributedTo === 'opponent'"
                   [class.is-opinion]="latestIntervention()?.verdict === 'opinion'"
-                  [class.is-profanity]="latestIntervention()?.verdict === 'profanity'">
+                  [class.is-profanity]="latestIntervention()?.verdict === 'profanity'"
+                  [class.is-hate]="latestIntervention()?.verdict === 'hate'">
                   <div>
                     <p class="intervention-kicker">
                       @if (latestIntervention()?.attributedTo === 'self') {
@@ -212,6 +216,8 @@
                         Opinion
                       } @else if (latestIntervention()?.verdict === 'profanity') {
                         Strong language
+                      } @else if (latestIntervention()?.verdict === 'hate') {
+                        Dehumanizing language
                       } @else {
                         Correction
                       }
@@ -541,11 +547,14 @@
                               <div
                                 class="transcript-fold__correction"
                                 [class.is-opinion]="correction.verdict === 'opinion'"
-                                [class.is-profanity]="correction.verdict === 'profanity'">
+                                [class.is-profanity]="correction.verdict === 'profanity'"
+                                [class.is-hate]="correction.verdict === 'hate'">
                                 @if (correction.verdict === 'opinion') {
                                   <ion-icon name="chatbubble-ellipses-outline"></ion-icon>
                                 } @else if (correction.verdict === 'profanity') {
                                   <ion-icon name="flame-outline"></ion-icon>
+                                } @else if (correction.verdict === 'hate') {
+                                  <ion-icon name="alert-circle-outline"></ion-icon>
                                 } @else {
                                   <ion-icon name="warning-outline"></ion-icon>
                                 }
@@ -1155,7 +1164,8 @@
           [class.is-self]="intervention.attributedTo === 'self'"
           [class.is-opponent]="intervention.attributedTo === 'opponent'"
           [class.is-opinion]="intervention.verdict === 'opinion'"
-          [class.is-profanity]="intervention.verdict === 'profanity'">
+          [class.is-profanity]="intervention.verdict === 'profanity'"
+          [class.is-hate]="intervention.verdict === 'hate'">
           <div class="correction-toast__progress" aria-hidden="true"></div>
           <div class="correction-toast__header">
             <div class="correction-toast__badge">
@@ -1165,6 +1175,9 @@
               } @else if (intervention.verdict === 'profanity') {
                 <ion-icon name="flame-outline"></ion-icon>
                 <span>Strong language</span>
+              } @else if (intervention.verdict === 'hate') {
+                <ion-icon name="alert-circle-outline"></ion-icon>
+                <span>Dehumanizing language</span>
               } @else {
                 <ion-icon name="warning-outline"></ion-icon>
                 <span>
